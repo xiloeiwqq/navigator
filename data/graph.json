@@ -1,0 +1,137 @@
+{
+  "version": "prototype-2026-11-16-r2",
+  "demo": true,
+  "timezone": "Europe/Moscow",
+  "building": "Главный учебный корпус",
+  "floors": [
+    {
+      "id": "1",
+      "label": "1 этаж",
+      "zones": [
+        {"x": 28, "y": 123, "width": 384, "height": 57, "type": "corridor", "label": ""},
+        {"x": 28, "y": 37, "width": 108, "height": 78, "type": "room", "label": "Коворкинг"},
+        {"x": 143, "y": 37, "width": 91, "height": 78, "type": "room", "label": "А-103"},
+        {"x": 241, "y": 37, "width": 72, "height": 78, "type": "room", "label": "А-105"},
+        {"x": 320, "y": 37, "width": 92, "height": 78, "type": "room", "label": "А-101"},
+        {"x": 28, "y": 187, "width": 124, "height": 65, "type": "service", "label": "Гардероб"},
+        {"x": 160, "y": 187, "width": 91, "height": 65, "type": "stairs", "label": ""},
+        {"x": 258, "y": 187, "width": 57, "height": 65, "type": "service", "label": "WC"},
+        {"x": 322, "y": 187, "width": 58, "height": 65, "type": "lift", "label": ""},
+        {"x": 387, "y": 187, "width": 25, "height": 65, "type": "service", "label": ""}
+      ]
+    },
+    {
+      "id": "2",
+      "label": "2 этаж",
+      "zones": [
+        {"x": 28, "y": 123, "width": 384, "height": 57, "type": "corridor", "label": ""},
+        {"x": 28, "y": 37, "width": 108, "height": 78, "type": "room", "label": "А-207"},
+        {"x": 143, "y": 37, "width": 91, "height": 78, "type": "room", "label": "А-205"},
+        {"x": 241, "y": 37, "width": 72, "height": 78, "type": "room", "label": "А-203"},
+        {"x": 320, "y": 37, "width": 92, "height": 78, "type": "room", "label": "А-201"},
+        {"x": 28, "y": 187, "width": 124, "height": 65, "type": "service", "label": "Зона отдыха"},
+        {"x": 160, "y": 187, "width": 91, "height": 65, "type": "stairs", "label": ""},
+        {"x": 258, "y": 187, "width": 57, "height": 65, "type": "service", "label": "WC"},
+        {"x": 322, "y": 187, "width": 58, "height": 65, "type": "lift", "label": ""},
+        {"x": 387, "y": 187, "width": 25, "height": 65, "type": "service", "label": ""}
+      ]
+    },
+    {
+      "id": "3",
+      "label": "3 этаж",
+      "zones": [
+        {"x": 28, "y": 123, "width": 384, "height": 57, "type": "corridor", "label": ""},
+        {"x": 28, "y": 37, "width": 108, "height": 78, "type": "room", "label": "А-307"},
+        {"x": 143, "y": 37, "width": 91, "height": 78, "type": "room", "label": "А-305"},
+        {"x": 241, "y": 37, "width": 72, "height": 78, "type": "room", "label": "А-303"},
+        {"x": 320, "y": 37, "width": 92, "height": 78, "type": "room", "label": "А-301"},
+        {"x": 28, "y": 187, "width": 124, "height": 65, "type": "service", "label": "Читальная зона"},
+        {"x": 160, "y": 187, "width": 91, "height": 65, "type": "stairs", "label": ""},
+        {"x": 258, "y": 187, "width": 57, "height": 65, "type": "service", "label": "WC"},
+        {"x": 322, "y": 187, "width": 58, "height": 65, "type": "lift", "label": ""},
+        {"x": 387, "y": 187, "width": 25, "height": 65, "type": "service", "label": ""}
+      ]
+    }
+  ],
+  "nodes": [
+    {"id": "entrance", "label": "Главный вход", "floor": "1", "x": 42, "y": 151, "room": false, "qr": true},
+    {"id": "hall1", "label": "Холл A1", "floor": "1", "x": 170, "y": 151, "room": false, "qr": true},
+    {"id": "lab1", "label": "Аудитория А-101", "floor": "1", "x": 365, "y": 88, "room": true, "qr": false},
+    {"id": "stairs1", "label": "Лестница A", "floor": "1", "x": 205, "y": 220, "room": false, "qr": true},
+    {"id": "lift1", "label": "Лифт A", "floor": "1", "x": 350, "y": 220, "room": false, "qr": true},
+    {"id": "stairs2", "label": "Лестница A", "floor": "2", "x": 205, "y": 220, "room": false, "qr": true},
+    {"id": "lift2", "label": "Лифт A", "floor": "2", "x": 350, "y": 220, "room": false, "qr": true},
+    {"id": "lab2", "label": "Аудитория А-201", "floor": "2", "x": 365, "y": 88, "room": true, "qr": false},
+    {"id": "stairs3", "label": "Лестница A", "floor": "3", "x": 205, "y": 220, "room": false, "qr": true},
+    {"id": "lift3", "label": "Лифт A", "floor": "3", "x": 350, "y": 220, "room": false, "qr": true},
+    {"id": "lab3", "label": "Аудитория А-301", "floor": "3", "x": 365, "y": 88, "room": true, "qr": false}
+  ],
+  "edges": [
+    {
+      "id": "entrance-hall", "name": "Главный вход — холл", "from": "entrance", "to": "hall1", "length_m": 6, "accessible": true, "kind": "corridor",
+      "path": {"1": [[42,151],[170,151]]},
+      "instructions": {"entrance>hall1": "Пройдите через турникеты в холл", "hall1>entrance": "Следуйте к главному выходу"}
+    },
+    {
+      "id": "hall-lab1", "name": "Холл — аудитория А-101", "from": "hall1", "to": "lab1", "length_m": 8, "accessible": true, "kind": "corridor",
+      "path": {"1": [[170,151],[294,151],[294,119],[365,119],[365,88]]},
+      "instructions": {"hall1>lab1": "Идите прямо и поверните к А-101", "lab1>hall1": "Выйдите в главный коридор"}
+    },
+    {
+      "id": "hall-stairs", "name": "Холл — лестница A", "from": "hall1", "to": "stairs1", "length_m": 6, "accessible": true, "kind": "corridor",
+      "path": {"1": [[170,151],[205,151],[205,220]]},
+      "instructions": {"hall1>stairs1": "Поверните к лестнице A", "stairs1>hall1": "Спуститесь в холл первого этажа"}
+    },
+    {
+      "id": "hall-lift", "name": "Холл — лифт A", "from": "hall1", "to": "lift1", "length_m": 14, "accessible": true, "kind": "corridor",
+      "path": {"1": [[170,151],[350,151],[350,220]]},
+      "instructions": {"hall1>lift1": "Идите по коридору к лифту A", "lift1>hall1": "Следуйте от лифта к холлу"}
+    },
+    {
+      "id": "lab1-lift", "name": "А-101 — лифт A", "from": "lab1", "to": "lift1", "length_m": 10, "accessible": true, "kind": "corridor",
+      "path": {"1": [[365,88],[394,88],[394,151],[350,151],[350,220]]},
+      "instructions": {"lab1>lift1": "Выйдите из аудитории и следуйте к лифту", "lift1>lab1": "От лифта поверните к А-101"}
+    },
+    {
+      "id": "stairs-between-floors", "name": "Лестница между этажами", "from": "stairs1", "to": "stairs2", "length_m": 5, "accessible": false, "kind": "stairs",
+      "instructions": {"stairs1>stairs2": "Поднимитесь по лестнице на 2 этаж", "stairs2>stairs1": "Спуститесь по лестнице на 1 этаж"}
+    },
+    {
+      "id": "lift-between-floors", "name": "Лифт между этажами", "from": "lift1", "to": "lift2", "length_m": 3, "accessible": true, "kind": "lift",
+      "instructions": {"lift1>lift2": "Поднимитесь на лифте на 2 этаж", "lift2>lift1": "Спуститесь на лифте на 1 этаж"}
+    },
+    {
+      "id": "stairs-lab2", "name": "Лестница A — аудитория А-201", "from": "stairs2", "to": "lab2", "length_m": 8, "accessible": true, "kind": "corridor",
+      "path": {"2": [[205,220],[205,151],[294,151],[294,119],[365,119],[365,88]]},
+      "instructions": {"stairs2>lab2": "Из лестничного холла поверните к А-201", "lab2>stairs2": "Выйдите в коридор и следуйте к лестнице"}
+    },
+    {
+      "id": "lift-lab2", "name": "Лифт A — аудитория А-201", "from": "lift2", "to": "lab2", "length_m": 6, "accessible": true, "kind": "corridor",
+      "path": {"2": [[350,220],[350,151],[394,151],[394,119],[365,119],[365,88]]},
+      "instructions": {"lift2>lab2": "Выйдите из лифта и поверните к А-201", "lab2>lift2": "Выйдите в коридор и следуйте к лифту"}
+    },
+    {
+      "id": "stairs2-lift2", "name": "Коридор между лестницей и лифтом на 2 этаже", "from": "stairs2", "to": "lift2", "length_m": 10, "accessible": true, "kind": "corridor",
+      "path": {"2": [[205,220],[205,151],[350,151],[350,220]]},
+      "instructions": {"stairs2>lift2": "Пройдите по коридору второго этажа к лифту", "lift2>stairs2": "Пройдите по коридору второго этажа к лестнице"}
+    },
+    {
+      "id": "stairs-between-floors-2-3", "name": "Лестница между 2 и 3 этажами", "from": "stairs2", "to": "stairs3", "length_m": 5, "accessible": false, "kind": "stairs",
+      "instructions": {"stairs2>stairs3": "Поднимитесь по лестнице на 3 этаж", "stairs3>stairs2": "Спуститесь по лестнице на 2 этаж"}
+    },
+    {
+      "id": "lift-between-floors-2-3", "name": "Лифт между 2 и 3 этажами", "from": "lift2", "to": "lift3", "length_m": 3, "accessible": true, "kind": "lift",
+      "instructions": {"lift2>lift3": "Поднимитесь на лифте на 3 этаж", "lift3>lift2": "Спуститесь на лифте на 2 этаж"}
+    },
+    {
+      "id": "stairs-lab3", "name": "Лестница A — аудитория А-301", "from": "stairs3", "to": "lab3", "length_m": 8, "accessible": true, "kind": "corridor",
+      "path": {"3": [[205,220],[205,151],[294,151],[294,119],[365,119],[365,88]]},
+      "instructions": {"stairs3>lab3": "Из лестничного холла поверните к А-301", "lab3>stairs3": "Выйдите в коридор и следуйте к лестнице"}
+    },
+    {
+      "id": "lift-lab3", "name": "Лифт A — аудитория А-301", "from": "lift3", "to": "lab3", "length_m": 6, "accessible": true, "kind": "corridor",
+      "path": {"3": [[350,220],[350,151],[394,151],[394,119],[365,119],[365,88]]},
+      "instructions": {"lift3>lab3": "Выйдите из лифта и поверните к А-301", "lab3>lift3": "Выйдите в коридор и следуйте к лифту"}
+    }
+  ]
+}

@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123c31">
+  <meta name="description" content="Прототип навигатора по учебному корпусу: расписание, QR-точки и маршруты между этажами.">
+  <title>Навигатор кампуса</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#main">Перейти к содержимому</a>
+
+  <svg class="svg-sprite" aria-hidden="true">
+    <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M20 10c0 5.2-8 11-8 11S4 15.2 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.7"/></symbol>
+    <symbol id="icon-route" viewBox="0 0 24 24"><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="6" r="2.5"/><path d="M8.5 18h2a3 3 0 0 0 3-3v-6a3 3 0 0 1 3-3h-1"/></symbol>
+    <symbol id="icon-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6v.2h-4V21a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9A1.7 1.7 0 0 0 3 14H2.8v-4H3a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3A1.7 1.7 0 0 0 10 3v-.2h4V3a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.6 1h.2v4H21a1.7 1.7 0 0 0-1.6 1Z"/></symbol>
+    <symbol id="icon-qr" viewBox="0 0 24 24"><path d="M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM15 14h2v2h-2zM18 14h2v4h-2zM14 18h4v2h-4zM20 20h.01"/></symbol>
+    <symbol id="icon-camera" viewBox="0 0 24 24"><path d="M4 7h3l1.5-2h7L17 7h3a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2Z"/><circle cx="12" cy="13" r="4"/></symbol>
+    <symbol id="icon-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+    <symbol id="icon-arrow" viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6"/></symbol>
+    <symbol id="icon-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="icon-walk" viewBox="0 0 24 24"><circle cx="13" cy="4.5" r="2"/><path d="m10 21 1.5-6-3-2 2-5 4 2 3 3M15 21l-2.5-6"/></symbol>
+    <symbol id="icon-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></symbol>
+    <symbol id="icon-accessible" viewBox="0 0 24 24"><circle cx="12" cy="4.5" r="2"/><path d="M10 8h4l1.5 5h-6L8 17M14 10h4M14.5 13.5A5 5 0 1 1 9 10"/></symbol>
+    <symbol id="icon-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="icon-check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="icon-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="11" height="11" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></symbol>
+    <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
+    <symbol id="icon-stairs" viewBox="0 0 24 24"><path d="M3 19h5v-4h4v-4h4V7h5"/></symbol>
+    <symbol id="icon-lift" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7v10M9 10l3-3 3 3M9 14l3 3 3-3"/></symbol>
+  </svg>
+
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="/">
+        <span class="brand__mark"><svg><use href="#icon-route"/></svg></span>
+        <span class="brand__text"><strong>Навигатор</strong><small>главный корпус</small></span>
+      </a>
+      <div class="topbar__actions">
+        <span class="demo-pill" id="modePill"><i></i> Демо-режим</span>
+        <button class="icon-button" id="settingsButton" type="button" aria-label="Параметры маршрута" aria-haspopup="dialog">
+          <svg><use href="#icon-settings"/></svg>
+          <span class="notification-dot" id="settingsDot" hidden></span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="main" class="page-shell">
+    <section class="welcome" aria-labelledby="pageTitle">
+      <div class="welcome__copy">
+        <p class="eyebrow"><span class="eyebrow__dot"></span> Навигация по корпусу</p>
+        <h1 id="pageTitle">Куда вам нужно?</h1>
+        <p>Найдём следующую пару и построим короткий путь между этажами.</p>
+      </div>
+      <div class="location-card">
+        <span class="location-card__icon"><svg><use href="#icon-pin"/></svg></span>
+        <span class="location-card__copy"><small>Сейчас вы здесь</small><strong id="currentLocation">Определяем точку…</strong></span>
+        <button id="changeLocationButton" type="button">Сканировать</button>
+      </div>
+    </section>
+
+    <section class="navigator-layout" aria-label="Построение маршрута">
+      <aside class="route-panel panel">
+        <div class="panel-title">
+          <div><p class="section-kicker">Ваш маршрут</p><h2>Параметры пути</h2></div>
+          <span class="qr-badge"><svg><use href="#icon-qr"/></svg> QR</span>
+        </div>
+
+        <form id="routeForm" novalidate>
+          <div class="places">
+            <label class="place-field">
+              <span class="place-field__marker place-field__marker--start"></span>
+              <span class="place-field__body"><small>Откуда</small><select id="start" aria-label="Начальная точка"></select></span>
+            </label>
+            <span class="places__line" aria-hidden="true"></span>
+            <label class="place-field">
+              <span class="place-field__marker place-field__marker--finish"><svg><use href="#icon-pin"/></svg></span>
+              <span class="place-field__body"><small>Куда</small><select id="target" aria-label="Аудитория назначения"></select></span>
+            </label>
+          </div>
+
+          <div class="schedule-fields">
+            <label><span>Учебная группа</span><select id="group"></select></label>
+            <label><span>Дата и время</span><input id="clock" type="datetime-local"></label>
+          </div>
+          <p class="schedule-source" id="scheduleSource" role="status">Определяем источник расписания…</p>
+
+          <label class="route-accessibility">
+            <span class="route-accessibility__icon"><svg><use href="#icon-accessible"/></svg></span>
+            <span class="route-accessibility__copy"><strong>Доступная среда</strong><small>Только лифты, пандусы и безбарьерные проходы</small></span>
+            <input id="accessibleQuick" type="checkbox"><span class="switch" aria-hidden="true"></span>
+          </label>
+
+          <button class="button button--secondary" id="findButton" type="submit">Построить выбранный маршрут</button>
+          <button class="button button--primary" id="nextLessonButton" type="button">
+            <span>К следующей паре</span><svg><use href="#icon-arrow"/></svg>
+          </button>
+        </form>
+
+        <article class="lesson-card" id="lessonCard" hidden>
+          <div class="lesson-card__top"><span id="lessonState">Следующая пара</span><strong id="lessonTime"></strong></div>
+          <h3 id="lessonTitle"></h3>
+          <p><svg><use href="#icon-pin"/></svg><span id="lessonRoom"></span></p>
+        </article>
+
+        <section class="route-result" id="routeResult" aria-labelledby="routeResultTitle">
+          <div class="route-result__placeholder">
+            <span class="spinner" aria-hidden="true"></span>
+            <p>Загружаем карту корпуса…</p>
+          </div>
+        </section>
+      </aside>
+
+      <section class="map-panel panel" aria-labelledby="mapTitle">
+        <header class="map-toolbar">
+          <div>
+            <p class="section-kicker">Схема корпуса</p>
+            <h2 id="mapTitle">Карта этажей</h2>
+          </div>
+          <div class="floor-tabs" id="floorTabs" role="tablist" aria-label="Выбор этажа"></div>
+        </header>
+
+        <div class="map-stage" id="mapStage">
+          <div class="map-status" id="mapStatus"><span></span> Маршрут строится</div>
+          <div class="map-canvas" id="mapCanvas" role="tabpanel" aria-live="polite"></div>
+          <div class="map-zoom" aria-label="Масштаб карты">
+            <button id="zoomIn" type="button" aria-label="Увеличить карту">+</button>
+            <button id="zoomOut" type="button" aria-label="Уменьшить карту">−</button>
+          </div>
+        </div>
+
+        <footer class="map-footer">
+          <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-dot"></i> Вы здесь</span></div>
+          <button class="text-button" id="copyRouteButton" type="button"><svg><use href="#icon-copy"/></svg> Скопировать ссылку</button>
+        </footer>
+      </section>
+    </section>
+
+    <p class="prototype-note"><span>Прототип</span> Карта демонстрационная, источник расписания указан в форме. Перед запуском в корпусе маршруты нужно проверить физическим обходом.</p>
+  </main>
+
+  <dialog class="scanner-dialog" id="scannerDialog" aria-labelledby="scannerTitle">
+    <div class="scanner-shell">
+      <header class="scanner-head">
+        <div class="scanner-brand"><span><svg><use href="#icon-qr"/></svg></span><div><small>Навигатор кампуса</small><h2 id="scannerTitle">Сканирование QR</h2></div></div>
+        <button class="scanner-close" id="scannerCloseButton" type="button" aria-label="Закрыть сканер"><svg><use href="#icon-close"/></svg></button>
+      </header>
+
+      <div class="scanner-view" id="scannerView">
+        <video id="cameraVideo" autoplay muted playsinline aria-label="Изображение с камеры"></video>
+        <canvas id="cameraCanvas" hidden></canvas>
+        <div class="camera-placeholder" id="cameraPlaceholder">
+          <span><svg><use href="#icon-camera"/></svg></span>
+          <strong>Подключаем камеру</strong>
+          <p>Разрешите доступ во всплывающем окне браузера.</p>
+        </div>
+        <div class="scan-target" aria-hidden="true"><i></i><i></i><i></i><i></i><span></span></div>
+        <p class="scanner-status" id="scannerStatus" role="status">Наведите камеру на QR-код</p>
+
+        <div class="camera-fallback" id="cameraFallback" hidden>
+          <span class="camera-fallback__icon"><svg><use href="#icon-camera"/></svg></span>
+          <h3 id="cameraFallbackTitle">Не удалось включить камеру</h3>
+          <p id="cameraFallbackText">Проверьте разрешение камеры в браузере.</p>
+          <button class="button button--camera" id="cameraRetryButton" type="button">Попробовать ещё раз</button>
+          <button class="button button--capture" id="cameraCaptureButton" type="button">Открыть системную камеру</button>
+          <input id="cameraCaptureInput" type="file" accept="image/*" capture="environment" hidden>
+        </div>
+
+        <section class="scan-success" id="scanSuccess" aria-live="polite" hidden>
+          <span class="scan-success__icon"><svg><use href="#icon-check"/></svg></span>
+          <p id="scanSuccessKicker">QR-код распознан</p>
+          <h3 id="scanSuccessTitle">Точка найдена</h3>
+          <span id="scanSuccessText">Стартовая точка маршрута обновлена.</span>
+          <code id="scanPayload"></code>
+          <div class="scan-success__actions">
+            <button class="button button--primary" id="scanAgainButton" type="button">Сканировать ещё</button>
+            <button class="button button--scanner-secondary" id="scannerContinueButton" type="button">Перейти в навигатор</button>
+          </div>
+        </section>
+      </div>
+
+      <footer class="scanner-foot">
+        <p><svg><use href="#icon-camera"/></svg> Видео обрабатывается только на устройстве и никуда не отправляется.</p>
+        <button id="continueWithoutScanButton" type="button">Продолжить без сканирования</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <dialog class="sheet-dialog" id="settingsDialog" aria-labelledby="settingsTitle">
+    <div class="dialog-head">
+      <div><p class="section-kicker">Настройки</p><h2 id="settingsTitle">Параметры маршрута</h2></div>
+      <button class="icon-button icon-button--light dialog-close" type="button" aria-label="Закрыть настройки"><svg><use href="#icon-close"/></svg></button>
+    </div>
+    <div class="dialog-body">
+      <label class="switch-row">
+        <span class="switch-row__icon"><svg><use href="#icon-accessible"/></svg></span>
+        <span class="switch-row__copy"><strong>Доступная среда</strong><small>Строить маршрут только через лифты, пандусы и доступные проходы</small></span>
+        <input id="accessible" type="checkbox"><span class="switch" aria-hidden="true"></span>
+      </label>
+      <div class="settings-section">
+        <div class="settings-section__title"><div><strong>Закрытые проходы</strong><small>Для проверки перестроения маршрута</small></div><span id="closedCount">0</span></div>
+        <div class="closed-list" id="closedList"></div>
+      </div>
+      <div class="data-card">
+        <span class="data-card__dot" id="serverStatusDot"></span>
+        <div><strong id="serverStatus">Данные корпуса загружены</strong><small id="dataVersion">Проверяем версию…</small></div>
+        <button id="healthButton" type="button">Проверить API</button>
+      </div>
+    </div>
+  </dialog>
+
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <script src="/vendor/jsQR.js"></script>
+  <script src="/route.js"></script>
+  <script src="/app.js"></script>
+</body>
+</html>
