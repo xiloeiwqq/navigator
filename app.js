@@ -3,10 +3,13 @@
 const $ = id => document.getElementById(id);
 const SVG_NS = "http://www.w3.org/2000/svg";
 const state = {
+  catalog: null,
+  campusId: null,
   data: null,
   result: null,
   alternatives: {fastest: null, accessible: null},
   lesson: null,
+  scheduleContext: null,
   activeFloor: "1",
   closed: new Set(),
   accessible: false,
@@ -14,7 +17,23 @@ const state = {
   locationSource: "manual",
   hasQrStart: false,
   explicitTarget: false,
-  lessonRequest: 0
+  lessonRequest: 0,
+  campusRequest: 0,
+  clockMinute: "",
+  clockTimer: null,
+  scheduleTimer: null,
+  position: null,
+  navigation: {routeKey: "", distanceM: 0, arrived: false},
+  sensors: {
+    enabled: false,
+    orientationEvent: null,
+    rawHeading: null,
+    heading: 0,
+    offset: 0,
+    lastStepAt: 0,
+    motionEnabled: false,
+    calibrationNode: null
+  }
 };
 const scanner = {
   stream: null,
@@ -142,15 +161,20 @@ function decodeCanvasSource(source, sourceWidth, sourceHeight) {
   return result?.data || null;
 }
 
-function nodeIdFromPayload(payload) {
+function locationFromPayload(payload) {
   const value = String(payload || "").trim();
   if (!value) return null;
-  if (state.data.graph.nodes.some(node => node.id === value)) return value;
+  if (state.data.graph.nodes.some(node => node.id === value)) {
+    return {campusId: state.campusId, nodeId: value};
+  }
 
   try {
     const parsed = JSON.parse(value);
     const candidate = parsed.start_node || parsed.node_id;
-    if (state.data.graph.nodes.some(node => node.id === candidate)) return candidate;
+    const campusId = parsed.campus_id || state.campusId;
+    if (candidate && state.catalog.campuses.some(campus => campus.id === campusId)) {
+      return {campusId, nodeId: String(candidate)};
+    }
   } catch (_error) {
     // Обычная QR-ссылка не является JSON — продолжаем разбор как URL.
   }
@@ -158,41 +182,45 @@ function nodeIdFromPayload(payload) {
   try {
     const url = new URL(value, location.href);
     const candidate = url.searchParams.get("start_node") || url.searchParams.get("node_id");
-    if (state.data.graph.nodes.some(node => node.id === candidate)) return candidate;
+    const campusId = url.searchParams.get("campus_id") || state.campusId;
+    if (candidate && state.catalog.campuses.some(campus => campus.id === campusId)) {
+      return {campusId, nodeId: candidate};
+    }
   } catch (_error) {
     return null;
   }
   return null;
 }
 
-function applyScannedLocation(nodeId) {
-  const node = nodeById(nodeId);
-  if (!node) return;
-  $("start").value = nodeId;
-  state.locationSource = "qr";
-  state.hasQrStart = true;
-  state.activeFloor = node.floor;
-  updateQueryStart(nodeId);
-  updateCurrentLocation();
-  findRoute();
-}
-
-function completeScan(payload) {
+async function completeScan(payload) {
   stopCamera();
-  const nodeId = nodeIdFromPayload(payload);
-  const node = nodeId ? nodeById(nodeId) : null;
+  const scanned = locationFromPayload(payload);
+  let node = null;
+  let loadError = null;
+  if (scanned) {
+    try {
+      if (scanned.campusId !== state.campusId) {
+        await switchCampus(scanned.campusId, {source: "qr", respectQuery: false});
+      }
+      node = nodeById(scanned.nodeId);
+    } catch (error) {
+      loadError = error;
+    }
+  }
   $("cameraFallback").hidden = true;
   $("cameraPlaceholder").classList.add("camera-placeholder--hidden");
   $("scannerView").className = `scanner-view scanner-view--success${node ? "" : " scanner-view--invalid"}`;
   $("scanPayload").textContent = payload ? String(payload).slice(0, 180) : "QR-код без текста";
   if (node) {
-    applyScannedLocation(node.id);
+    applyCheckpoint(node, "qr");
     $("scanSuccessTitle").textContent = node.label;
-    $("scanSuccessText").textContent = `Старт обновлён: ${formatFloor(node.floor).toLowerCase()}. Маршрут уже перестроен.`;
+    $("scanSuccessText").textContent = `Положение и поправка обновлены: ${formatFloor(node.floor).toLowerCase()}. Маршрут перестроен.`;
   } else {
     $("scanSuccessKicker").textContent = "Неизвестная метка";
     $("scanSuccessTitle").textContent = "Точка не найдена";
-    $("scanSuccessText").textContent = "Этот QR-код не содержит известный start_node или node_id. Попробуйте метку навигатора ещё раз.";
+    $("scanSuccessText").textContent = loadError
+      ? `Не удалось загрузить корпус: ${loadError.message}`
+      : "Этот QR-код не содержит известные campus_id и start_node/node_id. Попробуйте метку навигатора ещё раз.";
     $("scannerContinueButton").hidden = true;
     $("scanSuccess").querySelector("use")?.setAttribute("href", "#icon-alert");
   }
@@ -343,20 +371,40 @@ function currentLocalTime(timeZone) {
   }
 }
 
-function savedGroup() {
-  try { return localStorage.getItem("navigator_group") || ""; }
+function storageValue(key) {
+  try { return localStorage.getItem(key) || ""; }
   catch (_error) { return ""; }
 }
 
-function saveGroup(groupId) {
-  try { localStorage.setItem("navigator_group", groupId); }
+function saveValue(key, value) {
+  try { localStorage.setItem(key, value); }
   catch (_error) { /* Хранилище может быть отключено политикой браузера. */ }
+}
+
+function savedGroup() {
+  return storageValue(`navigator_group_${state.campusId}`);
+}
+
+function saveGroup(groupId) {
+  saveValue(`navigator_group_${state.campusId}`, groupId);
+}
+
+function updateCampusQuery(campusId, {resetRoute = false} = {}) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("campus_id", campusId);
+  url.searchParams.delete("at");
+  if (resetRoute) {
+    for (const name of ["start_node", "node_id", "target", "group_id"]) url.searchParams.delete(name);
+  }
+  history.replaceState({}, "", url);
 }
 
 function updateQueryStart(id) {
   const url = new URL(window.location.href);
   url.searchParams.delete("node_id");
+  url.searchParams.set("campus_id", state.campusId);
   url.searchParams.set("start_node", id);
+  url.searchParams.delete("at");
   history.replaceState({}, "", url);
 }
 
@@ -375,17 +423,39 @@ function dataMode(data) {
   return data.graph.demo || data.schedule?.demo ? "DEMO" : "Production";
 }
 
-function defaultScheduleTime(timetable, groupId, currentTime, demo) {
-  if (!demo || timetable.some(lesson => lesson.group_id === groupId && `${lesson.date}T${lesson.end}` > currentTime)) {
-    return currentTime;
+function updateClock() {
+  if (!state.data) return;
+  const timeZone = state.data.graph.timezone;
+  const now = new Date();
+  try {
+    $("currentClock").textContent = new Intl.DateTimeFormat("ru-RU", {
+      timeZone,
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit"
+    }).format(now);
+  } catch (_error) {
+    $("currentClock").textContent = now.toLocaleString("ru-RU");
   }
-  const firstLesson = timetable
-    .filter(lesson => lesson.group_id === groupId)
-    .sort((first, second) => `${first.date}T${first.start}`.localeCompare(`${second.date}T${second.start}`))[0];
-  return firstLesson ? `${firstLesson.date}T${firstLesson.start}` : currentTime;
+  $("clockTimezone").textContent = `${state.data.graph.city} · ${timeZone}`;
+  const minute = currentLocalTime(timeZone);
+  if (state.clockMinute && minute !== state.clockMinute) {
+    refreshSchedule({silent: true, updateTarget: false});
+  }
+  state.clockMinute = minute;
 }
 
-function populateControls() {
+function startClock() {
+  clearInterval(state.clockTimer);
+  state.clockMinute = "";
+  updateClock();
+  state.clockTimer = setInterval(updateClock, 1000);
+}
+
+function populateControls({respectQuery = true} = {}) {
   const {graph, timetable} = state.data;
   const start = $("start");
   const target = $("target");
@@ -395,37 +465,148 @@ function populateControls() {
   group.replaceChildren();
 
   for (const node of graph.nodes) option(start, node.id, `${node.label} · ${formatFloor(node.floor)}`);
-  for (const node of graph.nodes.filter(node => node.room)) option(target, node.id, node.label);
+  const destinations = graph.nodes.filter(node => node.room);
+  for (const floor of graph.floors) {
+    for (const node of destinations.filter(node => node.floor === floor.id)) {
+      option(target, node.id, `${node.label} · ${formatFloor(node.floor)}`);
+    }
+  }
   for (const groupId of [...new Set(timetable.map(lesson => lesson.group_id))]) option(group, groupId, groupId);
 
   const query = new URLSearchParams(location.search);
-  const queryStart = query.get("start_node") || query.get("node_id");
+  const queryStart = respectQuery ? query.get("start_node") || query.get("node_id") : null;
   const knownStart = graph.nodes.some(node => node.id === queryStart);
-  const fallbackStart = graph.nodes.some(node => node.id === "entrance") ? "entrance" : graph.nodes[0].id;
+  const fallbackStart = graph.entrance_node_id && graph.nodes.some(node => node.id === graph.entrance_node_id)
+    ? graph.entrance_node_id
+    : graph.nodes.some(node => node.id === "entrance") ? "entrance" : graph.nodes[0].id;
   start.value = knownStart ? queryStart : fallbackStart;
 
-  const queryTarget = query.get("target");
-  const knownTarget = graph.nodes.some(node => node.id === queryTarget && node.room);
-  const fallbackTarget = graph.nodes.some(node => node.id === "lab1") ? "lab1" : target.options[0]?.value;
+  const queryTarget = respectQuery ? query.get("target") : null;
+  const knownTarget = destinations.some(node => node.id === queryTarget);
+  const fallbackTarget = ["room1", "lab1"].find(id => destinations.some(node => node.id === id)) || destinations[0]?.id;
   target.value = knownTarget ? queryTarget : fallbackTarget;
   state.explicitTarget = knownTarget;
 
-  const preferredGroup = query.get("group_id") || savedGroup() || "ИСП-21";
+  const preferredGroup = (respectQuery ? query.get("group_id") : "") || savedGroup() || "ИСП-21";
   group.value = [...group.options].some(item => item.value === preferredGroup) ? preferredGroup : group.options[0]?.value;
-  const queryTime = query.get("at");
-  const currentTime = currentLocalTime(graph.timezone);
-  $("clock").value = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(queryTime || "")
-    ? queryTime
-    : defaultScheduleTime(timetable, group.value, currentTime, Boolean(state.data.schedule?.demo));
 
-  state.accessible = ["1", "true"].includes((query.get("accessible") || "").toLowerCase());
+  if (respectQuery) state.accessible = ["1", "true"].includes((query.get("accessible") || "").toLowerCase());
   state.activeFloor = nodeById(start.value).floor;
   state.locationSource = knownStart ? "qr" : "manual";
   state.hasQrStart = knownStart;
+  const startNode = nodeById(start.value);
+  state.position = {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id};
+  state.navigation = {routeKey: "", distanceM: 0, arrived: false};
   updateCurrentLocation();
 
   if (queryStart && !knownStart) {
     setTimeout(() => showToast("QR содержит неизвестную точку — выбран главный вход", "error"), 150);
+  }
+}
+
+function campusById(campusId) {
+  return state.catalog?.campuses.find(campus => campus.id === campusId) || null;
+}
+
+function populateCampusPicker() {
+  const select = $("campusSelect");
+  select.replaceChildren();
+  const campuses = [...state.catalog.campuses].sort((first, second) => first.city.localeCompare(second.city, "ru"));
+  for (const campus of campuses) {
+    option(select, campus.id, `${campus.city} — ${campus.short_name}`);
+  }
+}
+
+function geolocationPosition() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error("геолокация не поддерживается браузером"));
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: false,
+      timeout: 7000,
+      maximumAge: 5 * 60 * 1000
+    });
+  });
+}
+
+function distanceLabel(distanceKm) {
+  return distanceKm < 1 ? `${Math.round(distanceKm * 1000)} м` : `${distanceKm.toFixed(1)} км`;
+}
+
+async function detectNearestCampus({announce = true, switchCampusOnSuccess = true} = {}) {
+  const button = $("detectCampusButton");
+  button.disabled = true;
+  $("campusDetection").textContent = "Определяем ближайший корпус…";
+  try {
+    const position = await geolocationPosition();
+    const nearest = window.NavigatorGraph.nearestCampus(
+      state.catalog.campuses,
+      position.coords.latitude,
+      position.coords.longitude
+    );
+    if (!nearest) throw new Error("в каталоге нет координат корпусов");
+    const label = `${nearest.campus.city} · ${distanceLabel(nearest.distance_km)}`;
+    $("campusDetection").textContent = `Ближайший: ${label}`;
+    if (switchCampusOnSuccess && nearest.campus.id !== state.campusId) {
+      await switchCampus(nearest.campus.id, {source: "geolocation", respectQuery: false});
+      $("campusDetection").textContent = `Ближайший: ${label}`;
+    }
+    if (announce) showToast(`Выбран ближайший корпус: ${nearest.campus.short_name}`);
+    return nearest.campus.id;
+  } catch (error) {
+    const denied = error?.code === 1 || error?.name === "NotAllowedError";
+    $("campusDetection").textContent = denied ? "Геолокация запрещена · выберите вручную" : "Выберите корпус вручную";
+    if (announce) showToast(`Не удалось определить корпус: ${error.message || "нет геопозиции"}`, "error");
+    return null;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+async function switchCampus(campusId, {source = "manual", respectQuery = false} = {}) {
+  const campus = campusById(campusId);
+  if (!campus) throw new Error(`Неизвестный кампус: ${campusId}`);
+  const requestId = ++state.campusRequest;
+  $("campusSelect").disabled = true;
+  try {
+    const query = new URLSearchParams({campus_id: campusId});
+    const response = await fetch(`/api/data?${query}`, {cache: "no-store"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    if (requestId !== state.campusRequest) return false;
+
+    state.campusId = campusId;
+    state.data = payload;
+    state.result = null;
+    state.alternatives = {fastest: null, accessible: null};
+    state.lesson = null;
+    state.scheduleContext = null;
+    if (source === "manual") saveValue("navigator_campus", campusId);
+    updateCampusQuery(campusId, {resetRoute: !respectQuery});
+    $("campusSelect").value = campusId;
+    $("brandCampus").textContent = `${campus.city} · ${campus.short_name}`;
+    if (source === "manual") $("campusDetection").textContent = "Выбран вручную";
+    else if (source === "qr") $("campusDetection").textContent = "Корпус определён по QR";
+    else if (source === "saved") $("campusDetection").textContent = "Сохранённый выбор";
+    else if (source === "link") $("campusDetection").textContent = "Корпус из ссылки";
+
+    populateControls({respectQuery});
+    populateSettings();
+    updateSettingsState();
+    const mode = dataMode(state.data);
+    const scheduleDemo = Boolean(state.data.schedule?.demo);
+    updateScheduleSource(scheduleDemo);
+    $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Production";
+    $("dataVersion").textContent = `Версия ${state.data.graph.version} · ${mode} · ${scheduleDemo ? "тестовое расписание" : "расписание корпуса"}`;
+    startClock();
+    findRoute();
+    await refreshSchedule({silent: true, updateTarget: !state.explicitTarget});
+    checkHealth({announce: false});
+    return true;
+  } finally {
+    if (requestId === state.campusRequest) $("campusSelect").disabled = false;
   }
 }
 
@@ -474,86 +655,109 @@ function updateSettingsState() {
 
 function renderLesson() {
   const card = $("lessonCard");
-  if (!state.lesson) {
+  const context = state.scheduleContext;
+  const lesson = context?.current || context?.next || null;
+  const shown = lesson || context?.previous || null;
+  state.lesson = lesson;
+  const button = $("nextLessonButton");
+  const buttonLabel = button.querySelector("span");
+  if (!shown) {
     card.hidden = true;
+    button.disabled = true;
+    buttonLabel.textContent = "Занятий нет";
     return;
   }
-  const lesson = state.lesson;
-  const room = nodeById(lesson.room_id);
-  const currentTime = $("clock").value;
-  $("lessonState").textContent = currentTime >= `${lesson.date}T${lesson.start}` ? "Идёт сейчас" : "Следующая пара";
-  $("lessonTime").textContent = `${lesson.start}–${lesson.end}`;
-  $("lessonTitle").textContent = lesson.title;
+  const room = nodeById(shown.room_id);
+  const finished = !context.current && !context.next;
+  $("lessonState").textContent = context.current ? "Идёт сейчас" : context.next ? "Следующая пара" : "Занятия завершены";
+  $("lessonTime").textContent = `${shown.start}–${shown.end}`;
+  $("lessonTitle").textContent = shown.title;
   $("lessonRoom").textContent = `${room.label} · ${formatFloor(room.floor)}`;
+  if (context.current && context.next) {
+    const nextRoom = nodeById(context.next.room_id);
+    $("lessonNext").textContent = `Далее ${context.next.start}: ${context.next.title} · ${nextRoom.label}`;
+  } else if (context.current) {
+    $("lessonNext").textContent = "Это последняя пара в расписании";
+  } else if (finished) {
+    $("lessonNext").textContent = `Последняя пара завершилась в ${shown.end} · на сегодня всё`;
+  } else {
+    $("lessonNext").textContent = `Начало ${shown.date.split("-").reverse().join(".")} в ${shown.start}`;
+  }
+  button.disabled = !context.next;
+  buttonLabel.textContent = context.next
+    ? "К следующей паре"
+    : context.current ? "Следующих пар нет" : "На сегодня всё";
   card.hidden = false;
 }
 
-async function goToNextLesson({silent = false, advance = false} = {}) {
+function moveStartToNode(node, source) {
+  $("start").value = node.id;
+  state.locationSource = source;
+  state.activeFloor = node.floor;
+  state.position = {x: node.x, y: node.y, floor: node.floor, nodeId: node.id};
+  state.navigation = {routeKey: "", distanceM: 0, arrived: false};
+  updateQueryStart(node.id);
+  updateCurrentLocation();
+}
+
+function applyScheduleContext(context, {routeToNext = false, updateTarget = false, silent = false} = {}) {
+  for (const lesson of [context.current, context.next, context.previous].filter(Boolean)) {
+    if (!nodeById(lesson.room_id)) throw new Error(`Неизвестная аудитория в расписании: ${lesson.room_id}`);
+  }
+  state.scheduleContext = context;
+  renderLesson();
+
+  if (routeToNext) {
+    if (!context.route_to) {
+      if (!silent) showToast(context.current ? "После текущей пары занятий больше нет" : "Ближайших занятий нет", "error");
+      return;
+    }
+    if (context.route_from) moveStartToNode(nodeById(context.route_from), "schedule");
+    $("target").value = context.route_to;
+    state.explicitTarget = false;
+    findRoute();
+    if (!silent) {
+      const target = nodeById(context.route_to);
+      const origin = context.route_from ? nodeById(context.route_from).label : nodeById($("start").value).label;
+      showToast(`Маршрут к следующей паре: ${origin} → ${target.label}`);
+    }
+    return;
+  }
+
+  if (updateTarget && state.lesson) {
+    $("target").value = state.lesson.room_id;
+    state.explicitTarget = false;
+    findRoute();
+  }
+}
+
+async function refreshSchedule({silent = false, routeToNext = false, updateTarget = false} = {}) {
   const requestId = ++state.lessonRequest;
   const button = $("nextLessonButton");
   const groupId = $("group").value;
-  const selectedTime = $("clock").value;
-  const lookupTime = advance && state.lesson?.group_id === groupId
-    ? `${state.lesson.date}T${state.lesson.end}`
-    : selectedTime;
+  const lookupTime = currentLocalTime(state.data.graph.timezone);
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
-    const query = new URLSearchParams({group_id: groupId, at: lookupTime});
+    const query = new URLSearchParams({campus_id: state.campusId, group_id: groupId, at: lookupTime});
     const response = await fetch(`/api/timetable?${query}`, {cache: "no-store"});
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
     if (requestId !== state.lessonRequest) return;
-    const lesson = payload.lesson;
-    if (!lesson) {
-      // При последовательном просмотре сохраняем последнюю пару, чтобы повторное
-      // нажатие не начинало расписание заново с выбранного времени.
-      if (!advance) {
-        state.lesson = null;
-        renderLesson();
-        findRoute();
-      }
-      if (!silent) {
-        const message = advance && state.lesson
-          ? "После этой пары занятий больше нет"
-          : "Для выбранного времени занятий больше нет";
-        showToast(message, "error");
-      }
-      return;
-    }
-    if (!nodeById(lesson.room_id)) throw new Error("В расписании указана новая аудитория — обновите страницу");
-    state.lesson = lesson;
-    $("target").value = lesson.room_id;
-    state.explicitTarget = false;
-    renderLesson();
-    findRoute();
-    if (advance && !silent) {
-      const room = nodeById(lesson.room_id);
-      showToast(`Следующая пара: ${lesson.start} · ${room.label}`);
-    }
+    applyScheduleContext(payload, {routeToNext, updateTarget, silent});
   } catch (error) {
     if (requestId !== state.lessonRequest) return;
-    // При кратком сетевом сбое интерфейс остаётся работоспособным на уже загруженной копии.
     try {
-      const fallback = window.NavigatorGraph.nextLesson(state.data.timetable, groupId, lookupTime);
-      if (fallback) {
-        state.lesson = fallback;
-        $("target").value = fallback.room_id;
-        renderLesson();
-        findRoute();
-      } else {
-        state.lesson = null;
-        renderLesson();
-        findRoute();
-      }
+      const fallback = window.NavigatorGraph.scheduleContext(state.data.timetable, groupId, lookupTime);
+      applyScheduleContext(fallback, {routeToNext, updateTarget, silent});
     } catch (_fallbackError) {
       // Исходная ошибка API содержит более полезную диагностику.
     }
-    showToast(`Расписание не обновлено: ${error.message}`, "error");
+    if (!silent) showToast(`Расписание не обновлено: ${error.message}`, "error");
   } finally {
     if (requestId === state.lessonRequest) {
-      button.disabled = false;
       button.removeAttribute("aria-busy");
+      renderLesson();
     }
   }
 }
@@ -778,6 +982,147 @@ function edgePoints(edge, floorId) {
   return null;
 }
 
+function normalizeHeading(value) {
+  return (value % 360 + 360) % 360;
+}
+
+function setCompassStatus(message, stateName = "") {
+  $("compassStatus").textContent = message;
+  $("compassStatus").closest(".orientation-controls")?.setAttribute("data-state", stateName);
+}
+
+function updateLiveArrow() {
+  const marker = document.querySelector(".live-position");
+  if (!marker || !state.position || state.position.floor !== state.activeFloor) return;
+  marker.style.transform = `translate(${state.position.x}px, ${state.position.y}px)`;
+  const arrow = marker.querySelector(".live-position__arrow");
+  if (arrow) arrow.style.transform = `rotate(${state.sensors.heading}deg)`;
+}
+
+function advanceNavigation(distanceM = .75) {
+  if (!state.result || !state.result.edges.length || state.navigation.arrived) return;
+  state.navigation.distanceM = Math.min(state.result.length_m, state.navigation.distanceM + distanceM);
+  const position = window.NavigatorGraph.routePosition(state.data.graph, state.result, state.navigation.distanceM);
+  const floorChanged = position.floor !== state.activeFloor;
+  state.position = {x: position.x, y: position.y, floor: position.floor, nodeId: position.node_id};
+  state.navigation.arrived = position.arrived;
+  if (floorChanged) {
+    state.activeFloor = position.floor;
+    renderMap();
+  } else {
+    updateLiveArrow();
+  }
+  $("currentLocation").textContent = position.arrived
+    ? `${nodeById(state.result.nodes.at(-1)).label} · вы пришли`
+    : `В пути · ${formatFloor(position.floor)} · ${Math.round(state.navigation.distanceM)} м`;
+  if (position.arrived) {
+    showToast("Вы прибыли в точку назначения");
+    renderMap();
+  }
+}
+
+function handleOrientation(event) {
+  let rawHeading = null;
+  if (Number.isFinite(event.webkitCompassHeading)) rawHeading = event.webkitCompassHeading;
+  else if (Number.isFinite(event.alpha)) {
+    const screenAngle = screen.orientation?.angle || window.orientation || 0;
+    rawHeading = normalizeHeading(360 - event.alpha + screenAngle);
+  }
+  if (rawHeading === null) return;
+  state.sensors.rawHeading = rawHeading;
+  const corrected = normalizeHeading(rawHeading + state.sensors.offset);
+  const delta = ((corrected - state.sensors.heading + 540) % 360) - 180;
+  state.sensors.heading = normalizeHeading(state.sensors.heading + delta * .22);
+  updateLiveArrow();
+  const calibration = state.sensors.calibrationNode ? ` · ${state.sensors.calibrationNode}` : "";
+  setCompassStatus(`Компас ${Math.round(state.sensors.heading)}°${calibration}`, "active");
+}
+
+function handleMotion(event) {
+  const now = performance.now();
+  if (now - state.sensors.lastStepAt < 320) return;
+  const acceleration = event.acceleration;
+  let impulse = 0;
+  if ([acceleration?.x, acceleration?.y, acceleration?.z].every(Number.isFinite)) {
+    impulse = Math.hypot(acceleration.x, acceleration.y, acceleration.z);
+  } else {
+    const gravity = event.accelerationIncludingGravity;
+    if (![gravity?.x, gravity?.y, gravity?.z].every(Number.isFinite)) return;
+    impulse = Math.abs(Math.hypot(gravity.x, gravity.y, gravity.z) - 9.81);
+  }
+  if (impulse < 1.7) return;
+  state.sensors.lastStepAt = now;
+  advanceNavigation(.75);
+}
+
+async function requestSensorPermission(constructor) {
+  if (typeof constructor?.requestPermission !== "function") return true;
+  return (await constructor.requestPermission()) === "granted";
+}
+
+async function enableSensors() {
+  const orientationConstructor = window.DeviceOrientationEvent;
+  const motionConstructor = window.DeviceMotionEvent;
+  if (!orientationConstructor && !motionConstructor) {
+    setCompassStatus("Датчики движения не поддерживаются", "error");
+    showToast("На этом устройстве нет доступа к компасу и шагам", "error");
+    return;
+  }
+  try {
+    const orientationGranted = orientationConstructor
+      ? await requestSensorPermission(orientationConstructor).catch(() => false)
+      : false;
+    const motionGranted = motionConstructor
+      ? await requestSensorPermission(motionConstructor).catch(() => false)
+      : false;
+    if (!orientationGranted && !motionGranted) throw new Error("доступ к датчикам запрещён");
+    if (!state.sensors.enabled) {
+      state.sensors.orientationEvent = "ondeviceorientationabsolute" in window
+        ? "deviceorientationabsolute"
+        : "deviceorientation";
+      if (orientationGranted) window.addEventListener(state.sensors.orientationEvent, handleOrientation, true);
+      if (motionGranted) window.addEventListener("devicemotion", handleMotion, true);
+    }
+    state.sensors.enabled = true;
+    state.sensors.motionEnabled = motionGranted;
+    $("compassButton").textContent = orientationGranted ? "Компас активен" : "Шагомер активен";
+    $("compassButton").disabled = true;
+    setCompassStatus(orientationGranted ? "Ожидаем данные компаса…" : "Шагомер активен · без компаса", "pending");
+    const enabledLabel = orientationGranted && motionGranted ? "компас и шаги" : orientationGranted ? "компас" : "шаги";
+    showToast(`Живая навигация включена: данные «${enabledLabel}» обрабатываются на устройстве`);
+  } catch (error) {
+    setCompassStatus("Нет доступа к датчикам", "error");
+    showToast(`Не удалось включить датчики: ${error.message}`, "error");
+  }
+}
+
+function applyCheckpoint(node, source = "checkpoint") {
+  moveStartToNode(node, source);
+  state.hasQrStart = source === "qr";
+  state.sensors.calibrationNode = node.label;
+  if (Number.isFinite(node.heading) && Number.isFinite(state.sensors.rawHeading)) {
+    state.sensors.offset = normalizeHeading(node.heading - state.sensors.rawHeading);
+    state.sensors.heading = node.heading;
+    setCompassStatus(`Калибровка по точке · ${node.label}`, "active");
+  } else {
+    setCompassStatus(`Положение уточнено · ${node.label}`, "pending");
+  }
+  findRoute();
+  if (source === "checkpoint") showToast(`Положение откалибровано: ${node.label}`);
+}
+
+function resetCalibration() {
+  state.sensors.offset = 0;
+  state.sensors.calibrationNode = null;
+  const start = nodeById($("start").value);
+  state.position = {x: start.x, y: start.y, floor: start.floor, nodeId: start.id};
+  state.navigation = {routeKey: "", distanceM: 0, arrived: false};
+  state.activeFloor = start.floor;
+  setCompassStatus(state.sensors.enabled ? "Поправка сброшена · магнитный север" : "Поправка сброшена", "pending");
+  findRoute();
+  showToast("Положение возвращено к стартовой точке, поправка компаса сброшена");
+}
+
 function drawPlan(svg, floor) {
   svg.append(svgElement("rect", {x: 18, y: 28, width: 404, height: 234, rx: 8, class: "floor-shell"}));
   for (const zone of floor.zones || []) {
@@ -798,17 +1143,47 @@ function drawPlan(svg, floor) {
   svg.append(svgElement("text", {x: 385, y: 248, class: "map-floor-label", "text-anchor": "end"}, floor.id));
 }
 
-function drawMarker(svg, node, kind) {
-  if (kind === "start") svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 19, class: "map-node-pulse", style: `transform-origin:${node.x}px ${node.y}px`}));
-  const circleClass = kind === "start" ? "map-marker-start" : "map-marker-end";
-  svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 12, class: circleClass}));
-  svg.append(svgElement("text", {x: node.x, y: node.y + .5, class: `map-marker-letter${kind === "end" ? " map-marker-letter--end" : ""}`}, kind === "start" ? "A" : "B"));
-
-  const label = kind === "start" ? "Вы здесь" : node.label.replace("Аудитория ", "");
+function drawMarker(svg, node) {
+  svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 12, class: "map-marker-end"}));
+  svg.append(svgElement("text", {x: node.x, y: node.y + .5, class: "map-marker-letter map-marker-letter--end"}, "B"));
+  const label = node.label.replace("Аудитория ", "");
   const width = Math.max(51, Math.min(105, label.length * 5.2 + 16));
   const labelY = Math.max(34, node.y - 34);
   svg.append(svgElement("rect", {x: node.x - width / 2, y: labelY - 13, width, height: 19, rx: 7, class: "map-node-label-bg"}));
   svg.append(svgElement("text", {x: node.x, y: labelY, class: "map-node-label"}, label));
+}
+
+function drawCheckpoint(svg, node) {
+  const group = svgElement("g", {
+    class: "map-checkpoint",
+    role: "button",
+    tabindex: "0",
+    "aria-label": `Уточнить положение: ${node.label}`
+  });
+  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: 8, class: "map-checkpoint__ring"}));
+  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: 3, class: "map-checkpoint__dot"}));
+  group.addEventListener("click", () => applyCheckpoint(node));
+  group.addEventListener("keydown", event => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      applyCheckpoint(node);
+    }
+  });
+  svg.append(group);
+}
+
+function drawLivePosition(svg, position) {
+  const group = svgElement("g", {class: "live-position", "aria-label": "Текущее положение"});
+  group.style.transform = `translate(${position.x}px, ${position.y}px)`;
+  group.append(svgElement("circle", {cx: 0, cy: 0, r: 21, class: "live-position__pulse"}));
+  group.append(svgElement("circle", {cx: 0, cy: 0, r: 12, class: "live-position__disc"}));
+  const arrow = svgElement("g", {class: "live-position__arrow"});
+  arrow.style.transform = `rotate(${state.sensors.heading}deg)`;
+  arrow.append(svgElement("path", {d: "M0 -11 L7.5 8 L0 5 L-7.5 8 Z"}));
+  group.append(arrow);
+  group.append(svgElement("rect", {x: -28, y: -34, width: 56, height: 17, rx: 6, class: "map-node-label-bg"}));
+  group.append(svgElement("text", {x: 0, y: -22.5, class: "map-node-label"}, "Вы здесь"));
+  svg.append(group);
 }
 
 function renderFloorTabs() {
@@ -849,7 +1224,7 @@ function renderMap() {
   const svg = svgElement("svg", {
     viewBox: `${viewX} ${viewY} ${viewWidth} ${viewHeight}`,
     class: "floor-map",
-    role: "img",
+    role: "group",
     "aria-label": `${floor.label}, схема маршрута`,
     preserveAspectRatio: "xMidYMid meet"
   });
@@ -879,15 +1254,22 @@ function renderMap() {
     svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 5, class: "map-node map-node--route"}));
   }
 
-  const start = nodeById($("start").value);
+  for (const node of state.data.graph.nodes.filter(item => item.floor === floor.id && item.qr)) {
+    drawCheckpoint(svg, node);
+  }
+
   const target = nodeById($("target").value);
-  if (start.floor === floor.id) drawMarker(svg, start, "start");
-  if (target.floor === floor.id) drawMarker(svg, target, "end");
+  if (target.floor === floor.id) drawMarker(svg, target);
+  if (state.position?.floor === floor.id) drawLivePosition(svg, state.position);
   canvas.append(svg);
 
   const status = $("mapStatus");
   status.className = `map-status${state.result ? "" : " map-status--error"}`;
-  status.replaceChildren(document.createElement("span"), document.createTextNode(state.result ? ` Маршрут · ${state.result.length_m} м` : " Путь не найден"));
+  const remaining = state.result ? Math.max(0, Math.round(state.result.length_m - state.navigation.distanceM)) : 0;
+  const statusText = state.navigation.arrived
+    ? " Вы на месте"
+    : state.result ? ` Осталось · ${remaining} м` : " Путь не найден";
+  status.replaceChildren(document.createElement("span"), document.createTextNode(statusText));
   $("zoomIn").disabled = state.zoom >= 1.6;
   $("zoomOut").disabled = state.zoom <= 1;
 }
@@ -903,6 +1285,12 @@ function findRoute() {
     state.alternatives = {fastest, accessible};
     state.result = state.accessible ? accessible : fastest;
     const currentFloor = nodeById(start).floor;
+    const routeKey = [state.campusId, start, target, state.accessible, [...closed].sort().join(","), state.result?.edges.join(",") || "none"].join("|");
+    if (state.navigation.routeKey !== routeKey) {
+      const startNode = nodeById(start);
+      state.navigation = {routeKey, distanceM: 0, arrived: false};
+      state.position = {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id};
+    }
     const routeFloors = new Set(state.result ? state.result.nodes.map(id => nodeById(id).floor) : [currentFloor]);
     if (!routeFloors.has(state.activeFloor)) state.activeFloor = currentFloor;
     renderRouteResult();
@@ -919,10 +1307,11 @@ function findRoute() {
 async function copyRouteLink() {
   const url = new URL(location.href);
   url.searchParams.delete("node_id");
+  url.searchParams.delete("at");
+  url.searchParams.set("campus_id", state.campusId);
   url.searchParams.set("start_node", $("start").value);
   url.searchParams.set("target", $("target").value);
   url.searchParams.set("group_id", $("group").value);
-  url.searchParams.set("at", $("clock").value);
   if (state.accessible) url.searchParams.set("accessible", "1");
   else url.searchParams.delete("accessible");
   const text = url.toString();
@@ -948,7 +1337,8 @@ async function checkHealth({announce = true} = {}) {
   const button = $("healthButton");
   button.disabled = true;
   try {
-    const response = await fetch("/api/health", {cache: "no-store"});
+    const query = new URLSearchParams({campus_id: state.campusId});
+    const response = await fetch(`/api/health?${query}`, {cache: "no-store"});
     const health = await response.json().catch(() => ({}));
     if (!response.ok || health.status !== "ok") throw new Error(health.error || `HTTP ${response.status}`);
     $("serverStatus").textContent = "API доступен";
@@ -971,41 +1361,44 @@ async function checkHealth({announce = true} = {}) {
 function bindEvents() {
   $("routeForm").addEventListener("submit", event => {
     event.preventDefault();
-    state.lesson = null;
-    renderLesson();
+    state.explicitTarget = true;
     findRoute();
   });
-  $("nextLessonButton").addEventListener("click", () => goToNextLesson({advance: true}));
+  $("nextLessonButton").addEventListener("click", () => refreshSchedule({routeToNext: true}));
   $("target").addEventListener("change", () => {
-    state.lesson = null;
     state.explicitTarget = true;
-    renderLesson();
     findRoute();
   });
   $("group").addEventListener("change", () => {
     saveGroup($("group").value);
-    state.lesson = null;
-    renderLesson();
-    goToNextLesson();
-  });
-  $("clock").addEventListener("change", () => {
-    state.lesson = null;
-    renderLesson();
-    goToNextLesson();
+    state.explicitTarget = false;
+    refreshSchedule({updateTarget: true});
   });
   $("start").addEventListener("change", () => {
     const start = nodeById($("start").value);
-    state.locationSource = "manual";
     state.hasQrStart = false;
-    state.activeFloor = start.floor;
-    updateQueryStart(start.id);
-    updateCurrentLocation();
+    moveStartToNode(start, "manual");
     findRoute();
+  });
+  $("campusSelect").addEventListener("change", async event => {
+    try {
+      await switchCampus(event.target.value, {source: "manual", respectQuery: false});
+      showToast(`Корпус переключён: ${campusById(event.target.value).short_name}`);
+    } catch (error) {
+      showToast(`Не удалось переключить корпус: ${error.message}`, "error");
+      if (state.campusId) $("campusSelect").value = state.campusId;
+    }
+  });
+  $("detectCampusButton").addEventListener("click", () => {
+    saveValue("navigator_campus", "");
+    detectNearestCampus();
   });
   $("accessible").addEventListener("change", event => setAccessibility(event.target.checked));
   $("accessibleQuick").addEventListener("change", event => setAccessibility(event.target.checked));
   $("settingsButton").addEventListener("click", () => openDialog($("settingsDialog")));
   $("changeLocationButton").addEventListener("click", showScanner);
+  $("compassButton").addEventListener("click", enableSensors);
+  $("resetCalibrationButton").addEventListener("click", resetCalibration);
   $("copyRouteButton").addEventListener("click", copyRouteLink);
   $("healthButton").addEventListener("click", () => checkHealth());
   $("zoomIn").addEventListener("click", () => { state.zoom = Math.min(1.6, state.zoom + .2); renderMap(); });
@@ -1043,22 +1436,32 @@ function bindEvents() {
 
 async function boot() {
   try {
-    const response = await fetch("/api/data", {cache: "no-store"});
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.data = await response.json();
-    populateControls();
-    populateSettings();
-    const mode = dataMode(state.data);
-    const scheduleDemo = Boolean(state.data.schedule?.demo);
-    updateScheduleSource(scheduleDemo);
-    $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Production";
-    $("dataVersion").textContent = `Версия ${state.data.graph.version} · ${mode} · ${scheduleDemo ? "тестовое расписание" : "расписание корпуса"}`;
+    const response = await fetch("/api/campuses", {cache: "no-store"});
+    const catalog = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(catalog.error || `HTTP ${response.status}`);
+    if (!Array.isArray(catalog.campuses) || !catalog.campuses.length) throw new Error("Каталог кампусов пуст");
+    state.catalog = catalog;
+    populateCampusPicker();
     bindEvents();
-    updateSettingsState();
-    if (state.explicitTarget) findRoute();
-    else await goToNextLesson({silent: true});
-    checkHealth({announce: false});
-    if (!state.hasQrStart) showScanner();
+    $("campusSelect").disabled = true;
+
+    const query = new URLSearchParams(location.search);
+    const queryCampus = query.get("campus_id");
+    const knownQueryCampus = campusById(queryCampus);
+    const storedCampus = campusById(storageValue("navigator_campus"));
+    if (knownQueryCampus) {
+      await switchCampus(knownQueryCampus.id, {source: "link", respectQuery: true});
+    } else if (storedCampus) {
+      await switchCampus(storedCampus.id, {source: "saved", respectQuery: false});
+    } else {
+      const detected = await detectNearestCampus({announce: false});
+      if (!detected) {
+        await switchCampus(catalog.default_campus_id, {source: "default", respectQuery: false});
+        $("campusDetection").textContent = "Корпус по умолчанию · можно переключить";
+      }
+    }
+    if (queryCampus && !knownQueryCampus) showToast("В ссылке указан неизвестный кампус — выбран доступный", "error");
+    if (!state.hasQrStart) setTimeout(showScanner, 250);
   } catch (error) {
     const container = $("routeResult");
     container.innerHTML = "";

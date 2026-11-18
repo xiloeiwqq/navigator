@@ -10,6 +10,7 @@ for command in (
     ["node", "--check", "app.js"],
     ["node", "--check", "server.js"],
     ["node", "test_route.js"],
+    ["node", "test_server.js"],
 ):
     subprocess.run(command, cwd=ROOT, check=True)
 print("NAV_SMOKE_OK")
