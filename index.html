@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123c31">
-  <meta name="description" content="Прототип навигатора по учебному корпусу: расписание, QR-точки и маршруты между этажами.">
-  <title>Навигатор кампуса</title>
+  <meta name="description" content="Мультикампусный навигатор: ближайший корпус, расписание по системному времени, маршруты между этажами и живая стрелка без GPS.">
+  <title>Мультикампусный навигатор</title>
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -29,15 +29,31 @@
     <symbol id="icon-alert" viewBox="0 0 24 24"><path d="M12 3 2.8 19h18.4L12 3Z"/><path d="M12 9v4M12 17h.01"/></symbol>
     <symbol id="icon-stairs" viewBox="0 0 24 24"><path d="M3 19h5v-4h4v-4h4V7h5"/></symbol>
     <symbol id="icon-lift" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M12 7v10M9 10l3-3 3 3M9 14l3 3 3-3"/></symbol>
+    <symbol id="icon-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.8 8.2-2.1 5.5-5.5 2.1 2.1-5.5 5.5-2.1Z"/></symbol>
+    <symbol id="icon-locate" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2"/></symbol>
   </svg>
 
   <header class="topbar">
     <div class="topbar__inner">
       <a class="brand" href="/">
         <span class="brand__mark"><svg><use href="#icon-route"/></svg></span>
-        <span class="brand__text"><strong>Навигатор</strong><small>главный корпус</small></span>
+        <span class="brand__text"><strong>Навигатор</strong><small id="brandCampus">выбираем корпус</small></span>
       </a>
       <div class="topbar__actions">
+        <div class="campus-picker">
+          <label for="campusSelect">
+            <span id="campusDetection">Определяем ближайший корпус…</span>
+            <select id="campusSelect" aria-label="Город и учебный корпус"></select>
+          </label>
+          <button id="detectCampusButton" type="button" aria-label="Определить ближайший корпус ещё раз" title="Определить ближайший корпус">
+            <svg><use href="#icon-locate"/></svg>
+          </button>
+        </div>
+        <div class="header-clock" id="headerClock" role="status" aria-live="polite" title="Системное время выбранного корпуса">
+          <span>Системное время</span>
+          <strong id="currentClock">--:--</strong>
+          <small id="clockTimezone">Синхронизация…</small>
+        </div>
         <span class="demo-pill" id="modePill"><i></i> Демо-режим</span>
         <button class="icon-button" id="settingsButton" type="button" aria-label="Параметры маршрута" aria-haspopup="dialog">
           <svg><use href="#icon-settings"/></svg>
@@ -57,60 +73,63 @@
       <div class="location-card">
         <span class="location-card__icon"><svg><use href="#icon-pin"/></svg></span>
         <span class="location-card__copy"><small>Сейчас вы здесь</small><strong id="currentLocation">Определяем точку…</strong></span>
-        <button id="changeLocationButton" type="button">Сканировать</button>
       </div>
     </section>
 
     <section class="navigator-layout" aria-label="Построение маршрута">
       <aside class="route-panel panel">
-        <div class="panel-title">
-          <div><p class="section-kicker">Ваш маршрут</p><h2>Параметры пути</h2></div>
-          <span class="qr-badge"><svg><use href="#icon-qr"/></svg> QR</span>
+        <div class="route-setup">
+          <div class="panel-title">
+            <div><p class="section-kicker">Ваш маршрут</p><h2>Параметры пути</h2></div>
+            <span class="qr-badge"><svg><use href="#icon-qr"/></svg> QR</span>
+          </div>
+
+          <form id="routeForm" novalidate>
+            <div class="places">
+              <label class="place-field">
+                <span class="place-field__marker place-field__marker--start"></span>
+                <span class="place-field__body"><small>Откуда</small><select id="start" aria-label="Начальная точка"></select></span>
+              </label>
+              <span class="places__line" aria-hidden="true"></span>
+              <label class="place-field">
+                <span class="place-field__marker place-field__marker--finish"><svg><use href="#icon-pin"/></svg></span>
+                <span class="place-field__body"><small>Куда</small><select id="target" aria-label="Помещение назначения"></select></span>
+              </label>
+            </div>
+
+            <div class="schedule-fields">
+              <label><span>Учебная группа</span><select id="group"></select></label>
+              <label class="route-accessibility">
+                <span class="route-accessibility__copy"><strong>Доступная среда</strong><small>Лифты и безбарьерные проходы</small></span>
+                <input id="accessibleQuick" type="checkbox"><span class="switch" aria-hidden="true"></span>
+              </label>
+            </div>
+            <p class="schedule-source" id="scheduleSource" role="status">Определяем источник расписания…</p>
+
+            <div class="route-actions">
+              <button class="button button--secondary" id="findButton" type="submit">Построить маршрут</button>
+              <button class="button button--primary" id="nextLessonButton" type="button">
+                <span>К следующей паре</span><svg><use href="#icon-arrow"/></svg>
+              </button>
+            </div>
+          </form>
         </div>
 
-        <form id="routeForm" novalidate>
-          <div class="places">
-            <label class="place-field">
-              <span class="place-field__marker place-field__marker--start"></span>
-              <span class="place-field__body"><small>Откуда</small><select id="start" aria-label="Начальная точка"></select></span>
-            </label>
-            <span class="places__line" aria-hidden="true"></span>
-            <label class="place-field">
-              <span class="place-field__marker place-field__marker--finish"><svg><use href="#icon-pin"/></svg></span>
-              <span class="place-field__body"><small>Куда</small><select id="target" aria-label="Аудитория назначения"></select></span>
-            </label>
-          </div>
+        <div class="route-details">
+          <article class="lesson-card" id="lessonCard" hidden>
+            <div class="lesson-card__top"><span id="lessonState">Следующая пара</span><strong id="lessonTime"></strong></div>
+            <h3 id="lessonTitle"></h3>
+            <p><svg><use href="#icon-pin"/></svg><span id="lessonRoom"></span></p>
+            <p class="lesson-card__next" id="lessonNext"></p>
+          </article>
 
-          <div class="schedule-fields">
-            <label><span>Учебная группа</span><select id="group"></select></label>
-            <label><span>Дата и время</span><input id="clock" type="datetime-local"></label>
-          </div>
-          <p class="schedule-source" id="scheduleSource" role="status">Определяем источник расписания…</p>
-
-          <label class="route-accessibility">
-            <span class="route-accessibility__icon"><svg><use href="#icon-accessible"/></svg></span>
-            <span class="route-accessibility__copy"><strong>Доступная среда</strong><small>Только лифты, пандусы и безбарьерные проходы</small></span>
-            <input id="accessibleQuick" type="checkbox"><span class="switch" aria-hidden="true"></span>
-          </label>
-
-          <button class="button button--secondary" id="findButton" type="submit">Построить выбранный маршрут</button>
-          <button class="button button--primary" id="nextLessonButton" type="button">
-            <span>К следующей паре</span><svg><use href="#icon-arrow"/></svg>
-          </button>
-        </form>
-
-        <article class="lesson-card" id="lessonCard" hidden>
-          <div class="lesson-card__top"><span id="lessonState">Следующая пара</span><strong id="lessonTime"></strong></div>
-          <h3 id="lessonTitle"></h3>
-          <p><svg><use href="#icon-pin"/></svg><span id="lessonRoom"></span></p>
-        </article>
-
-        <section class="route-result" id="routeResult" aria-labelledby="routeResultTitle">
-          <div class="route-result__placeholder">
-            <span class="spinner" aria-hidden="true"></span>
-            <p>Загружаем карту корпуса…</p>
-          </div>
-        </section>
+          <section class="route-result" id="routeResult" aria-labelledby="routeResultTitle">
+            <div class="route-result__placeholder">
+              <span class="spinner" aria-hidden="true"></span>
+              <p>Загружаем карту корпуса…</p>
+            </div>
+          </section>
+        </div>
       </aside>
 
       <section class="map-panel panel" aria-labelledby="mapTitle">
@@ -119,11 +138,24 @@
             <p class="section-kicker">Схема корпуса</p>
             <h2 id="mapTitle">Карта этажей</h2>
           </div>
-          <div class="floor-tabs" id="floorTabs" role="tablist" aria-label="Выбор этажа"></div>
+          <div class="map-toolbar__actions">
+            <div class="floor-tabs" id="floorTabs" role="tablist" aria-label="Выбор этажа"></div>
+            <button class="map-scan-button" id="changeLocationButton" type="button" aria-label="Сканировать QR-код текущего положения" title="Сканировать QR-код">
+              <svg><use href="#icon-qr"/></svg><span>Сканировать QR</span>
+            </button>
+          </div>
         </header>
 
         <div class="map-stage" id="mapStage">
           <div class="map-status" id="mapStatus"><span></span> Маршрут строится</div>
+          <div class="orientation-controls" aria-label="Положение и компас">
+            <div class="orientation-controls__state">
+              <svg><use href="#icon-compass"/></svg>
+              <span id="compassStatus">Компас выключен</span>
+            </div>
+            <button id="compassButton" type="button">Включить компас</button>
+            <button id="resetCalibrationButton" type="button">Сбросить поправку</button>
+          </div>
           <div class="map-canvas" id="mapCanvas" role="tabpanel" aria-live="polite"></div>
           <div class="map-zoom" aria-label="Масштаб карты">
             <button id="zoomIn" type="button" aria-label="Увеличить карту">+</button>
@@ -132,7 +164,7 @@
         </div>
 
         <footer class="map-footer">
-          <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-dot"></i> Вы здесь</span></div>
+          <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-arrow"></i> Вы здесь</span><span><i class="legend-checkpoint"></i> Чекпоинт</span></div>
           <button class="text-button" id="copyRouteButton" type="button"><svg><use href="#icon-copy"/></svg> Скопировать ссылку</button>
         </footer>
       </section>
