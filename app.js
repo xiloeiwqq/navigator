@@ -13,6 +13,10 @@ const state = {
   closed: new Set(),
   accessible: false,
   zoom: 1,
+  mapCenter: null,
+  mapAngle: 0,
+  mapRouteFrame: null,
+  manualMapView: false,
   locationSource: "manual",
   explicitTarget: false,
   lessonRequest: 0,
@@ -20,6 +24,7 @@ const state = {
   dataError: "",
   clockMinute: "",
   clockTimer: null,
+  healthTimer: null,
   position: null,
   navigation: {routeKey: "", distanceM: 0, arrived: false},
   sensors: {
@@ -43,6 +48,7 @@ const scanner = {
   requestId: 0
 };
 let toastTimer;
+let mapAnimationFrame;
 
 function icon(name, className = "") {
   const svg = svgElement("svg", {"aria-hidden": "true", class: className});
@@ -105,8 +111,9 @@ function resetScannerUi() {
   $("scanSuccess").hidden = true;
   $("cameraFallback").hidden = true;
   $("cameraPlaceholder").classList.remove("camera-placeholder--hidden");
+  $("cameraPlaceholderTitle").textContent = "Подключаем камеру";
+  $("cameraPlaceholderText").textContent = "Разрешите доступ во всплывающем окне браузера.";
   $("scannerStatus").textContent = "Наведите камеру на QR-код";
-  $("scanPayload").textContent = "";
   $("scanSuccessKicker").textContent = "QR-код распознан";
   $("scanSuccessTitle").textContent = "Точка найдена";
   $("scanSuccessText").textContent = "Стартовая точка маршрута обновлена.";
@@ -124,11 +131,16 @@ function showCameraFallback(title, text, canRetry = true) {
   $("cameraFallbackText").textContent = text;
   $("cameraRetryButton").hidden = !canRetry;
   $("cameraFallback").hidden = false;
+  if (mobileViewport.matches) {
+    closeDialog($("scannerDialog"));
+    showMobileError("camera");
+    $("mobileErrorRetry").hidden = !canRetry;
+  }
 }
 
 function cameraError(error) {
   if (error?.name === "NotAllowedError" || error?.name === "PermissionDeniedError") {
-    return ["Нет доступа к камере", "Разрешите камеру в настройках сайта или откройте системную камеру кнопкой ниже.", true];
+    return ["Нет доступа к камере", "Разрешите доступ в браузере или отсканируйте QR-код по фото.", true];
   }
   if (error?.name === "NotFoundError" || error?.name === "DevicesNotFoundError") {
     return ["Камера не найдена", "На устройстве нет доступной камеры. Можно выбрать готовое изображение QR-кода.", false];
@@ -204,7 +216,6 @@ async function completeScan(payload) {
   $("cameraFallback").hidden = true;
   $("cameraPlaceholder").classList.add("camera-placeholder--hidden");
   $("scannerView").className = `scanner-view scanner-view--success${node ? "" : " scanner-view--invalid"}`;
-  $("scanPayload").textContent = payload ? String(payload).slice(0, 180) : "QR-код без текста";
   if (node) {
     applyCheckpoint(node, "qr");
     $("scanSuccessTitle").textContent = node.label;
@@ -220,7 +231,10 @@ async function completeScan(payload) {
     $("scannerContinueButton").textContent = "Выбрать старт вручную";
     $("scanSuccess").querySelector("use")?.setAttribute("href", "#icon-alert");
   }
+  const scannedCampus = scanned && campusById(scanned.campusId);
+  mobileFinishScan(node, scannedCampus?.temporarily_closed ? "campus" : "qr");
   $("scanSuccess").hidden = false;
+  if ($("scannerDialog").open) $("scannerContinueButton").focus({preventScroll: true});
   if (navigator.vibrate) navigator.vibrate(node ? 80 : [60, 40, 60]);
 }
 
@@ -323,16 +337,24 @@ function loadImageFile(file) {
 
 async function scanCapturedImage(file) {
   if (!file) return;
-  $("cameraFallbackTitle").textContent = "Ищем QR-код…";
-  $("cameraFallbackText").textContent = "Обрабатываем снимок прямо на устройстве.";
+  stopCamera();
+  const requestId = scanner.requestId;
+  if ($("scannerDialog").open) {
+    $("scannerView").className = "scanner-view";
+    $("cameraFallback").hidden = true;
+    $("cameraPlaceholder").classList.remove("camera-placeholder--hidden");
+    $("cameraPlaceholderTitle").textContent = "Читаем QR-код";
+    $("cameraPlaceholderText").textContent = "Обрабатываем снимок на устройстве.";
+  }
+  let payload = null;
   try {
     const image = await loadImageFile(file);
-    const payload = decodeCanvasSource(image, image.naturalWidth, image.naturalHeight);
-    if (payload !== null) completeScan(payload);
-    else showCameraFallback("QR-код не найден", "Попробуйте снять код ближе, без бликов и целиком внутри кадра.", window.isSecureContext);
+    if (requestId !== scanner.requestId) return;
+    payload = decodeCanvasSource(image, image.naturalWidth, image.naturalHeight);
   } catch (_error) {
-    showCameraFallback("Не удалось прочитать снимок", "Сделайте новый снимок или выберите другое изображение.", window.isSecureContext);
+    // Ошибка чтения снимка обрабатывается так же, как нераспознанный код.
   }
+  if (requestId === scanner.requestId) await completeScan(payload);
 }
 
 function formatFloor(id) {
@@ -473,8 +495,9 @@ function populateControls({respectQuery = true, selection = null} = {}) {
 
   option(start, "", "Выберите стартовую точку");
   option(target, "", "Выберите помещение");
-  for (const node of graph.nodes) option(start, node.id, `${node.label} · ${formatFloor(node.floor)}`);
-  const destinations = graph.nodes.filter(node => node.room);
+  const startNodes = graph.nodes.filter(node => !node.waypoint);
+  for (const node of startNodes) option(start, node.id, `${node.label} · ${formatFloor(node.floor)}`);
+  const destinations = graph.nodes.filter(node => node.room || node.id === (graph.entrance_node_id || "entrance"));
   for (const floor of graph.floors) {
     for (const node of destinations.filter(node => node.floor === floor.id)) {
       option(target, node.id, `${node.label} · ${formatFloor(node.floor)}`);
@@ -486,7 +509,7 @@ function populateControls({respectQuery = true, selection = null} = {}) {
 
   const query = new URLSearchParams(location.search);
   const queryStart = selection?.start ?? (respectQuery ? query.get("start_node") || query.get("node_id") : null);
-  const knownStart = graph.nodes.some(node => node.id === queryStart);
+  const knownStart = startNodes.some(node => node.id === queryStart);
   start.value = knownStart ? queryStart : "";
 
   const queryTarget = selection?.target ?? (respectQuery ? query.get("target") : null);
@@ -496,6 +519,10 @@ function populateControls({respectQuery = true, selection = null} = {}) {
 
   const preferredGroup = selection?.group || (respectQuery ? query.get("group_id") : "") || savedGroup() || "ИСП-21";
   group.value = [...group.options].some(item => item.value === preferredGroup) ? preferredGroup : group.options[0]?.value;
+  const mobileGroup = $("mobileGroup");
+  mobileGroup.replaceChildren(...Array.from(group.options, item => item.cloneNode(true)));
+  mobileGroup.value = group.value;
+  mobileGroup.disabled = group.disabled;
 
   if (respectQuery) state.accessible = ["1", "true"].includes((query.get("accessible") || "").toLowerCase());
   state.locationSource = knownStart ? selection?.source || "qr" : "manual";
@@ -519,8 +546,11 @@ function populateCampusPicker() {
   select.replaceChildren();
   const campuses = [...state.catalog.campuses].sort((first, second) => first.city.localeCompare(second.city, "ru"));
   for (const campus of campuses) {
-    option(select, campus.id, `${campus.city} — ${campus.short_name}`);
+    const label = `${campus.city} — ${campus.short_name}`;
+    option(select, campus.id, campus.temporarily_closed ? `${label} · временно не работает` : label);
+    select.lastElementChild.disabled = campus.temporarily_closed;
   }
+  renderMobileCampus();
 }
 
 function geolocationPosition() {
@@ -548,7 +578,7 @@ async function detectNearestCampus({announce = true, switchCampusOnSuccess = tru
   try {
     const position = await geolocationPosition();
     const nearest = window.NavigatorGraph.nearestCampus(
-      state.catalog.campuses,
+      state.catalog.campuses.filter(campus => !campus.temporarily_closed && campus.auto_select !== false),
       position.coords.latitude,
       position.coords.longitude
     );
@@ -574,6 +604,7 @@ async function detectNearestCampus({announce = true, switchCampusOnSuccess = tru
 async function switchCampus(campusId, {source = "manual", respectQuery = false, scannedNodeId} = {}) {
   const campus = campusById(campusId);
   if (!campus) throw new Error(`Неизвестный кампус: ${campusId}`);
+  if (campus.temporarily_closed) throw new Error(`${campus.short_name} временно не работает`);
   const requestId = ++state.campusRequest;
   $("campusSelect").disabled = true;
   try {
@@ -582,6 +613,10 @@ async function switchCampus(campusId, {source = "manual", respectQuery = false, 
     if (scannedNodeId && !payload.graph.nodes.some(node => node.id === scannedNodeId)) return false;
 
     state.campusId = campusId;
+    mobile.campusChosen = source !== "default";
+    mobile.city = mobile.campusChosen ? campus.city : "";
+    mobile.routeRequested = respectQuery && new URLSearchParams(location.search).has("target");
+    mobile.stepsOpen = false;
     if (source === "manual") saveValue("navigator_campus", campusId);
     updateCampusQuery(campusId, {resetRoute: !respectQuery});
     $("campusSelect").value = campusId;
@@ -592,6 +627,7 @@ async function switchCampus(campusId, {source = "manual", respectQuery = false, 
     else if (source === "link") $("campusDetection").textContent = "Корпус из ссылки";
 
     applyCampusData(payload, {respectQuery, selection: null});
+    renderMobileCampus();
     return true;
   } finally {
     if (requestId === state.campusRequest) $("campusSelect").disabled = false;
@@ -619,6 +655,7 @@ function applyCampusData(payload, {respectQuery = false, selection = null} = {})
     $("campusSelect").value = payload.campus_id;
   }
   state.dataError = "";
+  if (mobile.error === "offline") mobile.error = "";
   state.lesson = null;
   state.scheduleContext = null;
   populateControls({respectQuery, selection});
@@ -627,7 +664,10 @@ function applyCampusData(payload, {respectQuery = false, selection = null} = {})
   const mode = dataMode(payload);
   const scheduleDemo = Boolean(payload.schedule?.demo);
   updateScheduleSource(payload.schedule);
-  $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Production";
+  $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Реальный план";
+  $("prototypeNote").hidden = !payload.graph.demo;
+  $("mapSourceNote").textContent = payload.graph.route_note || "";
+  $("mapSourceNote").hidden = !payload.graph.route_note;
   const scheduleLabel = payload.schedule.source === "none" ? "без расписания"
     : scheduleDemo ? "тестовое расписание" : "расписание корпуса";
   $("dataVersion").textContent = `Версия ${payload.graph.version} · ${mode} · ${scheduleLabel}`;
@@ -693,6 +733,7 @@ function renderLesson() {
     card.hidden = true;
     button.disabled = true;
     buttonLabel.textContent = "Занятий нет";
+    renderMobileLesson();
     return;
   }
   const room = nodeById(shown.room_id);
@@ -716,6 +757,7 @@ function renderLesson() {
     ? "К следующей паре"
     : context.current ? "Следующих пар нет" : "На сегодня всё";
   card.hidden = false;
+  renderMobileLesson();
 }
 
 function moveStartToNode(node, source) {
@@ -768,6 +810,7 @@ async function refreshSchedule({silent = false, routeToNext = false, updateTarge
     button.disabled = true;
     button.removeAttribute("aria-busy");
     $("lessonCard").hidden = true;
+    renderMobileLesson();
     return;
   }
   const lookupTime = currentLocalTime(state.data.graph.timezone);
@@ -820,6 +863,13 @@ function createRouteStep({title, subtitle, distance, floor, iconName, first = fa
   const mark = document.createElement("span");
   mark.className = "route-step__icon";
   mark.append(icon(first ? "route" : iconName));
+  if (iconName === "walk" || iconName === "lift") {
+    const image = document.createElement("img");
+    image.alt = "";
+    image.className = "mobile-only";
+    image.src = `/assets/mobile/${iconName}.svg`;
+    mark.append(image);
+  }
   const copy = document.createElement("span");
   copy.className = "route-step__copy";
   const heading = document.createElement("strong");
@@ -964,7 +1014,8 @@ function renderRouteResult() {
   const minutes = result.length_m === 0 ? 0 : Math.max(1, Math.ceil(result.length_m / 55));
   const metrics = document.createElement("div");
   metrics.className = "route-metrics";
-  for (const [value, label] of [[`${result.length_m} м`, "расстояние"], [`~${minutes} мин`, "пешком"], [String(routeFloors.size), routeFloors.size === 1 ? "этаж" : "этажа"]]) {
+  const metricValues = [[`${result.length_m} м`, "расстояние"], [`~${minutes} мин`, "пешком"], [String(routeFloors.size), routeFloors.size === 1 ? "этаж" : "этажа"]];
+  for (const [index, [value, label]] of metricValues.entries()) {
     const metric = document.createElement("span");
     metric.className = "route-metric";
     const strong = document.createElement("strong");
@@ -972,6 +1023,22 @@ function renderRouteResult() {
     const small = document.createElement("span");
     small.textContent = label;
     metric.append(strong, small);
+    if (index === 1) {
+      metric.classList.add("route-metric--time");
+      const caption = document.createElement("span");
+      caption.className = "mobile-only";
+      caption.textContent = "в пути";
+      metric.append(caption);
+    } else if (index === 2) {
+      metric.classList.add("route-metric--floors");
+      const floor = document.createElement("strong");
+      floor.className = "mobile-only";
+      floor.textContent = formatFloor(target.floor).replace(/\s+этаж$/i, "");
+      const caption = document.createElement("span");
+      caption.className = "mobile-only";
+      caption.textContent = "этаж";
+      metric.append(floor, caption);
+    }
     metrics.append(metric);
   }
   summary.append(metrics);
@@ -982,7 +1049,6 @@ function renderRouteResult() {
   const stepsTitle = document.createElement("h3");
   stepsTitle.textContent = "По шагам";
   const stepsCount = document.createElement("span");
-  stepsCount.textContent = formatStepCount(result.edges.length + 1);
   stepsHead.append(stepsTitle, stepsCount);
   container.append(stepsHead);
 
@@ -998,19 +1064,30 @@ function renderRouteResult() {
     last: result.edges.length === 0
   }));
 
+  const steps = [];
   result.edges.forEach((edgeId, index) => {
     const edge = edgeById(edgeId);
     const from = nodeById(result.nodes[index]);
     const to = nodeById(result.nodes[index + 1]);
-    list.append(createRouteStep({
-      title: instructionFor(edge, from, to),
-      subtitle: `${to.label} · ${formatFloor(to.floor)}`,
-      distance: `${edge.length_m} м`,
-      floor: to.floor,
-      iconName: stepIcon(edge, from, to),
-      last: index === result.edges.length - 1
-    }));
+    const title = instructionFor(edge, from, to);
+    const straight = from.waypoint && to.waypoint && from.floor === to.floor && edge.kind === "corridor";
+    const previous = steps.at(-1);
+    if (straight && previous?.straight && previous.title === title && previous.to.floor === to.floor) {
+      previous.length += edge.length_m;
+      previous.to = to;
+    } else {
+      steps.push({title, to, length: edge.length_m, straight, iconName: stepIcon(edge, from, to)});
+    }
   });
+  stepsCount.textContent = formatStepCount(steps.length + 1);
+  steps.forEach(({title, to, length, iconName}, index) => list.append(createRouteStep({
+    title,
+    subtitle: `${to.label} · ${formatFloor(to.floor)}`,
+    distance: `${length} м`,
+    floor: to.floor,
+    iconName,
+    last: index === steps.length - 1
+  })));
   container.append(list);
 }
 
@@ -1029,6 +1106,7 @@ function normalizeHeading(value) {
 function setCompassStatus(message, stateName = "") {
   $("compassStatus").textContent = message;
   $("compassStatus").closest(".orientation-controls")?.setAttribute("data-state", stateName);
+  $("mobileCompass").textContent = state.sensors.enabled ? message : "Включить компас";
 }
 
 function updateLiveArrow() {
@@ -1164,7 +1242,12 @@ function resetCalibration() {
   showToast("Положение возвращено к стартовой точке, поправка компаса сброшена");
 }
 
-function drawMarker(svg, node) {
+function drawMarker(svg, node, imagePlan) {
+  const size = imagePlan ? 19 : 30;
+  svg.append(svgElement("image", {
+    href: "/assets/mobile/flag.svg", x: node.x - size / 2, y: node.y - size, width: size, height: size,
+    class: "navigator-map-icon map-flag", "data-rotation-center": `${node.x} ${node.y}`
+  }));
   svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 12, class: "map-marker-end"}));
   svg.append(svgElement("text", {x: node.x, y: node.y + .5, class: "map-marker-letter map-marker-letter--end"}, "B"));
   const label = node.label.replace("Аудитория ", "");
@@ -1174,15 +1257,15 @@ function drawMarker(svg, node) {
   svg.append(svgElement("text", {x: node.x, y: labelY, class: "map-node-label"}, label));
 }
 
-function drawCheckpoint(svg, node) {
+function drawCheckpoint(svg, node, imagePlan) {
   const group = svgElement("g", {
     class: "map-checkpoint",
     role: "button",
     tabindex: "0",
     "aria-label": `Уточнить положение: ${node.label}`
   });
-  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: 8, class: "map-checkpoint__ring"}));
-  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: 3, class: "map-checkpoint__dot"}));
+  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: imagePlan ? 5.5 : 8, class: "map-checkpoint__ring"}));
+  group.append(svgElement("circle", {cx: node.x, cy: node.y, r: imagePlan ? 2.5 : 3, class: "map-checkpoint__dot"}));
   group.addEventListener("click", () => applyCheckpoint(node));
   group.addEventListener("keydown", event => {
     if (event.key === "Enter" || event.key === " ") {
@@ -1193,7 +1276,7 @@ function drawCheckpoint(svg, node) {
   svg.append(group);
 }
 
-function drawLivePosition(svg, position) {
+function drawLivePosition(svg, position, imagePlan) {
   const group = svgElement("g", {class: "live-position", "aria-label": "Текущее положение"});
   group.style.transform = `translate(${position.x}px, ${position.y}px)`;
   group.append(svgElement("circle", {cx: 0, cy: 0, r: 21, class: "live-position__pulse"}));
@@ -1201,6 +1284,8 @@ function drawLivePosition(svg, position) {
   const arrow = svgElement("g", {class: "live-position__arrow"});
   arrow.style.transform = `rotate(${state.sensors.heading}deg)`;
   arrow.append(svgElement("path", {d: "M0 -11 L7.5 8 L0 5 L-7.5 8 Z"}));
+  const size = imagePlan ? 19 : 30;
+  arrow.append(svgElement("image", {href: "/assets/mobile/arrow.svg", x: -size / 2, y: -size / 2, width: size, height: size, class: "navigator-map-icon"}));
   group.append(arrow);
   group.append(svgElement("rect", {x: -28, y: -34, width: 56, height: 17, rx: 6, class: "map-node-label-bg"}));
   group.append(svgElement("text", {x: 0, y: -22.5, class: "map-node-label"}, "Вы здесь"));
@@ -1212,13 +1297,22 @@ function renderFloorTabs() {
   tabs.replaceChildren();
   tabs.style.setProperty("--floor-count", String(state.data.graph.floors.length));
   const routeFloors = new Set(state.result ? state.result.nodes.map(id => nodeById(id).floor) : []);
-  for (const floor of state.data.graph.floors) {
+  const floors = [...state.data.graph.floors].reverse();
+  for (const floor of floors) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "floor-tab";
     button.setAttribute("role", "tab");
     button.setAttribute("aria-selected", String(state.activeFloor === floor.id));
-    button.textContent = floor.label;
+    const label = document.createElement("span");
+    label.className = "floor-tab-label";
+    label.textContent = floor.label;
+    const mobileLabel = document.createElement("span");
+    mobileLabel.className = "mobile-only mobile-floor-label";
+    const number = document.createElement("strong");
+    number.textContent = floor.label.replace(/\s+этаж$/i, "");
+    mobileLabel.append(number, document.createTextNode("этаж"));
+    button.append(label, mobileLabel);
     if (routeFloors.has(floor.id)) {
       const dot = document.createElement("i");
       dot.className = "floor-tab__route";
@@ -1226,63 +1320,373 @@ function renderFloorTabs() {
     }
     button.addEventListener("click", () => {
       state.activeFloor = floor.id;
-      state.zoom = 1;
+      state.manualMapView = false;
+      state.mapAngle = 0;
       renderMap();
     });
     tabs.append(button);
   }
 }
 
+const mapWidth = 440;
+const mapHeight = 290;
+
+function mapMinZoom() {
+  return Math.min(1, state.mapRouteFrame?.zoom ?? 1);
+}
+
+function mapZoomLimit(floor) {
+  return mobileViewport.matches || floorUsesDetailedZoom(floor) ? 4 : 1.6;
+}
+
+function mobileFloorZoom(floor) {
+  return floor.outline ? Math.min(2.4, Math.max(1, mapHeight / (floor.outline.height + 34))) : 1.45;
+}
+
+function setAutomaticMapView(floor) {
+  state.mapRouteFrame = null;
+  const outline = floor.outline;
+  if (!mobileViewport.matches || !outline || outline.width < outline.height * 2.5) {
+    state.zoom = 1;
+    state.mapCenter = null;
+    return;
+  }
+  const start = nodeById($("start").value);
+  const target = nodeById($("target").value);
+  const entrance = nodeById(state.data.graph.entrance_node_id);
+  const onFloor = node => node?.floor === floor.id;
+  const anchor = [start, target, entrance].find(onFloor);
+  state.zoom = mobileFloorZoom(floor);
+  const fitsRoute = onFloor(start) && onFloor(target) && Math.abs(start.x - target.x) + 36 <= mapWidth / state.zoom;
+  state.mapCenter = {
+    x: fitsRoute ? (start.x + target.x) / 2 : anchor?.x ?? outline.x + outline.width / 2,
+    y: outline.y + outline.height / 2
+  };
+}
+
+function mapAxisCenter(center, visible, total, start = 0, extent = total, frameCenter) {
+  const min = Math.max(0, start - 14);
+  const max = Math.min(total, start + extent + 14);
+  const halfSpan = Math.min(visible, max - min) / 2;
+  // Keep the fitted route center reachable near the edge of a rotated floor plan.
+  const lower = Math.min(min + halfSpan, frameCenter ?? Infinity);
+  const upper = Math.max(max - halfSpan, frameCenter ?? -Infinity);
+  return Math.max(lower, Math.min(upper, center));
+}
+
+function rotateMapVector(x, y, angle) {
+  const radians = angle * Math.PI / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {x: x * cosine - y * sine, y: x * sine + y * cosine};
+}
+
+function setMapViewBox(svg, floor) {
+  const width = mapWidth / state.zoom;
+  const height = mapHeight / state.zoom;
+  const center = state.mapCenter || {x: mapWidth / 2, y: mapHeight / 2};
+  const frame = state.mapRouteFrame;
+  const axis = rotateMapVector(1, 0, state.mapAngle);
+  const visibleX = Math.abs(axis.x) * width + Math.abs(axis.y) * height;
+  const visibleY = Math.abs(axis.y) * width + Math.abs(axis.x) * height;
+  const x = mapAxisCenter(center.x, visibleX, mapWidth, floor.outline?.x, floor.outline?.width, frame?.x);
+  const y = mapAxisCenter(center.y, visibleY, mapHeight, floor.outline?.y, floor.outline?.height, frame?.y);
+  state.mapCenter = {x, y};
+  const left = x - width / 2;
+  const top = y - height / 2;
+  svg.setAttribute("viewBox", `${left} ${top} ${width} ${height}`);
+  const scene = svg.firstElementChild;
+  scene.setAttribute("transform", `rotate(${state.mapAngle} ${x} ${y})`);
+  const counterAngle = String(-state.mapAngle);
+  if (counterAngle !== (scene.dataset.counterAngle ?? "0")) {
+    for (const item of scene.querySelectorAll("[data-rotation-center]")) {
+      item.setAttribute("transform", `rotate(${counterAngle} ${item.dataset.rotationCenter})`);
+    }
+    scene.dataset.counterAngle = counterAngle;
+  }
+  const canPan = state.zoom > mapMinZoom();
+  if (!svg.hasAttribute("aria-label") || svg.classList.contains("floor-map--pannable") !== canPan) {
+    svg.classList.toggle("floor-map--pannable", canPan);
+    if (canPan) svg.setAttribute("tabindex", "0");
+    else svg.removeAttribute("tabindex");
+    svg.setAttribute("aria-label", `${floor.label}, схема маршрута${canPan ? ". Для перемещения используйте клавиши со стрелками." : ""}`);
+  }
+  $("zoomIn").disabled = state.zoom >= mapZoomLimit(floor);
+  $("zoomOut").disabled = !canPan;
+}
+
+function stopMapAnimation() {
+  if (mapAnimationFrame != null) cancelAnimationFrame(mapAnimationFrame);
+  mapAnimationFrame = null;
+}
+
+function animateMapView(target, angle, zoom) {
+  const svg = $("mapCanvas").querySelector(".floor-map");
+  const floor = floorById(state.activeFloor);
+  if (!svg || !floor) return;
+  stopMapAnimation();
+  state.manualMapView = true;
+  const from = {center: state.mapCenter, zoom: state.zoom, angle: state.mapAngle};
+  const angleDelta = ((angle - from.angle + 540) % 360) - 180;
+  const update = progress => {
+    state.zoom = progress === 1 ? zoom : from.zoom + (zoom - from.zoom) * progress;
+    state.mapAngle = from.angle + angleDelta * progress;
+    state.mapCenter = {
+      x: from.center.x + (target.x - from.center.x) * progress,
+      y: from.center.y + (target.y - from.center.y) * progress
+    };
+    setMapViewBox(svg, floor);
+  };
+  if (reducedMobileMotion.matches) {
+    update(1);
+    return;
+  }
+  const started = performance.now();
+  const frame = now => {
+    const progress = Math.min(1, (now - started) / 440);
+    update(1 - (1 - progress) ** 3);
+    mapAnimationFrame = progress < 1 ? requestAnimationFrame(frame) : null;
+  };
+  mapAnimationFrame = requestAnimationFrame(frame);
+}
+
+function showMapDestination() {
+  const target = nodeById($("target").value);
+  if (!target || state.dataError) return;
+  state.mapRouteFrame = null;
+  if (state.activeFloor !== target.floor) {
+    state.activeFloor = target.floor;
+    renderMap();
+  }
+  animateMapView(target, 0, Math.max(state.zoom, mobileFloorZoom(floorById(target.floor))));
+}
+
+function frameMobileRoute() {
+  const nodes = state.result.nodes.map(nodeById);
+  const start = nodes[0];
+  const floor = floorById(start.floor);
+  const floorExit = nodes.findIndex(node => node.floor !== start.floor);
+  const segment = floorExit === -1 ? nodes : nodes.slice(0, floorExit);
+  const end = segment.at(-1);
+  if (state.activeFloor !== start.floor) {
+    state.activeFloor = start.floor;
+    renderMap();
+  }
+
+  const dx = end.x - start.x;
+  const dy = end.y - start.y;
+  const angle = Math.hypot(dx, dy) > .5 ? -90 - Math.atan2(dy, dx) * 180 / Math.PI : 0;
+  const points = segment.map(({x, y}) => [x, y]);
+  for (const edgeId of state.result.edges.slice(0, segment.length)) {
+    points.push(...(edgePoints(edgeById(edgeId), floor.id) || []));
+  }
+  const rotated = points.map(([x, y]) => rotateMapVector(x, y, angle));
+  const xs = rotated.map(point => point.x);
+  const ys = rotated.map(point => point.y);
+  const left = Math.min(...xs);
+  const right = Math.max(...xs);
+  const top = Math.min(...ys);
+  const bottom = Math.max(...ys);
+  const center = rotateMapVector((left + right) / 2, (top + bottom) / 2, -angle);
+  const markerPadding = 34;
+  const zoom = Math.min(
+    Math.max(state.zoom, mobileFloorZoom(floor)),
+    mapWidth / (right - left + 2 * markerPadding),
+    mapHeight / (bottom - top + 2 * markerPadding)
+  );
+  state.mapRouteFrame = {...center, zoom};
+  animateMapView(center, angle, zoom);
+}
+
+function bindMapGestures(canvas) {
+  const pointers = new Map();
+  let gesture;
+  let suppressClick = false;
+  const eventPoint = event => ({x: event.clientX, y: event.clientY});
+  const describePointers = () => {
+    const [first, second] = pointers.values();
+    if (!second) return first;
+    return {
+      x: (first.x + second.x) / 2,
+      y: (first.y + second.y) / 2,
+      distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y))
+    };
+  };
+  const resetGesture = () => {
+    gesture = null;
+    const screenPoint = describePointers();
+    const svg = canvas.querySelector(".floor-map");
+    const matrix = svg?.firstElementChild?.getScreenCTM();
+    const scale = matrix && Math.hypot(matrix.a, matrix.b);
+    if (!screenPoint || !scale) return;
+    const anchor = new DOMPoint(screenPoint.x, screenPoint.y).matrixTransform(matrix.inverse());
+    gesture = {screenPoint, anchor, scale, center: state.mapCenter, zoom: state.zoom, angle: state.mapAngle};
+  };
+  const capturePointers = () => {
+    for (const id of pointers.keys()) {
+      if (!canvas.hasPointerCapture(id)) canvas.setPointerCapture(id);
+    }
+  };
+  canvas.addEventListener("pointerdown", event => {
+    if (event.button !== 0 || pointers.size >= 2 || (pointers.size && event.pointerType !== "touch")) return;
+    if (!pointers.size) {
+      stopMapAnimation();
+      suppressClick = false;
+    }
+    pointers.set(event.pointerId, eventPoint(event));
+    if (pointers.size === 2) {
+      suppressClick = true;
+      capturePointers();
+    }
+    resetGesture();
+  });
+
+  canvas.addEventListener("pointermove", event => {
+    if (!pointers.has(event.pointerId) || !gesture) return;
+    const svg = canvas.querySelector(".floor-map");
+    const floor = state.data && floorById(state.activeFloor);
+    if (!svg || !floor) return;
+    pointers.set(event.pointerId, eventPoint(event));
+    const point = describePointers();
+    if (point.distance) {
+      state.zoom = Math.max(mapMinZoom(), Math.min(mapZoomLimit(floor), gesture.zoom * point.distance / gesture.screenPoint.distance));
+      const scale = gesture.scale * state.zoom / gesture.zoom;
+      const rect = svg.getBoundingClientRect();
+      const offset = rotateMapVector(
+        (rect.left + rect.width / 2 - point.x) / scale,
+        (rect.top + rect.height / 2 - point.y) / scale, -gesture.angle);
+      state.mapCenter = {
+        x: gesture.anchor.x + offset.x,
+        y: gesture.anchor.y + offset.y
+      };
+    } else {
+      if (state.zoom <= mapMinZoom()) return;
+      const dx = point.x - gesture.screenPoint.x;
+      const dy = point.y - gesture.screenPoint.y;
+      if (!suppressClick && Math.hypot(dx, dy) < 5) return;
+      if (!suppressClick) capturePointers();
+      const offset = rotateMapVector(dx / gesture.scale, dy / gesture.scale, -gesture.angle);
+      state.mapCenter = {x: gesture.center.x - offset.x, y: gesture.center.y - offset.y};
+    }
+    suppressClick = true;
+    state.manualMapView = true;
+    event.preventDefault();
+    setMapViewBox(svg, floor);
+  });
+
+  const endPointer = event => {
+    if (pointers.delete(event.pointerId)) resetGesture();
+  };
+  canvas.addEventListener("pointerup", endPointer);
+  canvas.addEventListener("pointercancel", endPointer);
+  canvas.addEventListener("pointerleave", event => {
+    if (event.pointerType === "mouse" && !canvas.hasPointerCapture(event.pointerId)) endPointer(event);
+  });
+  canvas.addEventListener("lostpointercapture", event => {
+    // При переносе захвата с элемента SVG событие от него всплывает в контейнер.
+    if (event.target === canvas) endPointer(event);
+  });
+  canvas.addEventListener("click", event => {
+    if (suppressClick && event.detail !== 0) {
+      suppressClick = false;
+      event.stopImmediatePropagation();
+    }
+  }, true);
+
+  const directions = {ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1]};
+  canvas.addEventListener("keydown", event => {
+    const svg = canvas.querySelector(".floor-map");
+    const direction = directions[event.key];
+    if (event.target !== svg || !direction || state.zoom <= mapMinZoom()) return;
+    event.preventDefault();
+    stopMapAnimation();
+    state.manualMapView = true;
+    const offset = rotateMapVector(direction[0] * 65 / state.zoom, direction[1] * 65 / state.zoom, -state.mapAngle);
+    state.mapCenter = {
+      x: state.mapCenter.x + offset.x,
+      y: state.mapCenter.y + offset.y
+    };
+    setMapViewBox(svg, floorById(state.activeFloor));
+  });
+}
+
+function changeMapZoom(direction) {
+  if (!state.data) return;
+  stopMapAnimation();
+  const floor = floorById(state.activeFloor);
+  const detailed = floorUsesDetailedZoom(floor);
+  const step = detailed || mobileViewport.matches ? .5 : .2;
+  if (detailed && !state.mapRouteFrame && state.zoom === 1 && direction > 0) {
+    state.mapCenter = state.position || nodeById($("target").value) || null;
+  }
+  state.manualMapView = true;
+  state.zoom = Math.min(mapZoomLimit(floor), Math.max(mapMinZoom(), state.zoom + direction * step));
+  setMapViewBox($("mapCanvas").querySelector(".floor-map"), floor);
+}
+
 function renderMap() {
   if (!state.data) return;
+  stopMapAnimation();
   renderFloorTabs();
   const floor = floorById(state.activeFloor) || state.data.graph.floors[0];
   const canvas = $("mapCanvas");
+  const floorKey = `${state.campusId}:${floor.id}`;
+  const floorChanged = canvas.dataset.floorKey !== floorKey;
+  if (floorChanged) {
+    state.manualMapView = false;
+    state.mapAngle = 0;
+  }
+  if (!state.manualMapView) setAutomaticMapView(floor);
+  const mobileRouteKey = mobile.routeRequested && state.result ? state.navigation.routeKey : "";
+  const drawMobileRoute = Boolean(mobileRouteKey) && (floorChanged || mobileRouteKey !== canvas.dataset.routeKey);
+  canvas.dataset.floorKey = floorKey;
+  canvas.dataset.routeKey = mobileRouteKey;
   canvas.replaceChildren();
-  const viewWidth = 440 / state.zoom;
-  const viewHeight = 290 / state.zoom;
-  const viewX = (440 - viewWidth) / 2;
-  const viewY = (290 - viewHeight) / 2;
+  const detailed = floorUsesDetailedZoom(floor);
   const svg = svgElement("svg", {
-    viewBox: `${viewX} ${viewY} ${viewWidth} ${viewHeight}`,
-    class: "floor-map",
+    class: `floor-map${floorChanged ? " floor-map--changed" : ""}${detailed ? " floor-map--detailed" : ""}`,
     role: "group",
-    "aria-label": `${floor.label}, схема маршрута`,
     preserveAspectRatio: "xMidYMid meet"
   });
-  drawPlan(svg, floor);
+  const scene = svgElement("g");
+  svg.append(scene);
+  drawPlan(scene, floor);
 
   for (const edge of state.data.graph.edges) {
     const points = edgePoints(edge, floor.id);
     if (!points) continue;
-    svg.append(svgElement("polyline", {
+    scene.append(svgElement("polyline", {
       points: points.map(point => point.join(",")).join(" "),
       class: `network-path${edge.closed === true || state.closed.has(edge.id) ? " network-path--closed" : ""}`
     }));
   }
 
   const selectedEdges = new Set(state.result?.edges || []);
+  const routeLines = [];
   for (const edgeId of selectedEdges) {
     const edge = edgeById(edgeId);
     const points = edgePoints(edge, floor.id);
     if (!points) continue;
     const serialized = points.map(point => point.join(",")).join(" ");
-    svg.append(svgElement("polyline", {points: serialized, class: "active-path-shadow"}));
-    svg.append(svgElement("polyline", {points: serialized, class: "active-path", pathLength: 1}));
+    scene.append(svgElement("polyline", {points: serialized, class: "active-path-shadow"}));
+    routeLines.push(svgElement("polyline", {points: serialized, class: `active-path${drawMobileRoute ? " active-path--animate" : ""}`, pathLength: 1}));
   }
+  scene.append(...routeLines);
 
   const selectedNodes = new Set(state.result?.nodes || []);
   for (const node of state.data.graph.nodes.filter(item => item.floor === floor.id && selectedNodes.has(item.id))) {
-    svg.append(svgElement("circle", {cx: node.x, cy: node.y, r: 5, class: "map-node map-node--route"}));
+    scene.append(svgElement("circle", {cx: node.x, cy: node.y, r: 5, class: "map-node map-node--route"}));
   }
 
   for (const node of state.data.graph.nodes.filter(item => item.floor === floor.id && item.qr)) {
-    drawCheckpoint(svg, node);
+    drawCheckpoint(scene, node, detailed);
   }
 
   const target = nodeById($("target").value);
-  if (!state.dataError && target?.floor === floor.id) drawMarker(svg, target);
-  if (!state.dataError && state.position?.floor === floor.id) drawLivePosition(svg, state.position);
+  if (!state.dataError && target?.floor === floor.id) drawMarker(scene, target, detailed);
+  if (!state.dataError && state.position?.floor === floor.id) drawLivePosition(scene, state.position, detailed);
+  drawMobilePickPoints(scene, floor);
+  setMapViewBox(svg, floor);
   canvas.append(svg);
 
   const status = $("mapStatus");
@@ -1294,8 +1698,7 @@ function renderMap() {
     ? " Вы на месте"
     : state.result ? ` Осталось · ${remaining} м` : " Путь не найден";
   status.replaceChildren(document.createElement("span"), document.createTextNode(statusText));
-  $("zoomIn").disabled = state.zoom >= 1.6;
-  $("zoomOut").disabled = state.zoom <= 1;
+  renderMobile();
 }
 
 function findRoute() {
@@ -1310,6 +1713,7 @@ function findRoute() {
     renderRouteResult();
     renderMap();
     $("copyRouteButton").disabled = true;
+    if (state.dataError) showMobileError("offline");
     return;
   }
   try {
@@ -1332,6 +1736,7 @@ function findRoute() {
     renderRouteResult();
     renderMap();
     $("copyRouteButton").disabled = !state.result;
+    if (!state.result && mobile.routeRequested) showMobileError("blocked");
   } catch (error) {
     state.result = null;
     state.alternatives = {fastest: null, accessible: null};
@@ -1339,6 +1744,7 @@ function findRoute() {
     renderMap();
     $("copyRouteButton").disabled = true;
     showToast(error.message, "error");
+    if (mobile.routeRequested) showMobileError("blocked");
   }
 }
 
@@ -1422,6 +1828,7 @@ async function refreshCampusData({announce = true} = {}) {
     $("nextLessonButton").disabled = true;
     $("nextLessonButton").removeAttribute("aria-busy");
     $("lessonCard").hidden = true;
+    renderMobileLesson();
     $("serverStatus").textContent = "Данные недоступны";
     $("serverStatusDot").classList.add("data-card__dot--error");
     $("dataVersion").textContent = state.dataError;
@@ -1434,18 +1841,33 @@ async function refreshCampusData({announce = true} = {}) {
 function bindEvents() {
   $("routeForm").addEventListener("submit", event => {
     event.preventDefault();
+    if (mobileViewport.matches) {
+      if (!mobile.campusChosen || !$("start").value || !$("target").value) {
+        showToast(!mobile.campusChosen ? "Выбери город и корпус" : "Выбери старт и пункт назначения", "error");
+        return;
+      }
+      mobile.routeRequested = true;
+      mobile.stepsOpen = false;
+      mobileCloseMenu();
+      mobile.picking = "";
+    }
     state.explicitTarget = true;
     findRoute();
+    if (mobileViewport.matches && state.result) frameMobileRoute();
   });
   $("nextLessonButton").addEventListener("click", () => refreshSchedule({routeToNext: true}));
   $("target").addEventListener("change", () => {
     state.explicitTarget = true;
+    const focusTarget = mobileViewport.matches && $("target").value;
+    if (focusTarget) state.manualMapView = true;
     findRoute();
+    if (focusTarget) showMapDestination();
   });
   $("group").addEventListener("change", () => {
+    $("mobileGroup").value = $("group").value;
     saveGroup($("group").value);
     state.explicitTarget = false;
-    refreshSchedule({updateTarget: true});
+    refreshSchedule({updateTarget: !mobileViewport.matches});
   });
   $("start").addEventListener("change", () => {
     const start = nodeById($("start").value);
@@ -1478,8 +1900,9 @@ function bindEvents() {
   $("resetCalibrationButton").addEventListener("click", resetCalibration);
   $("copyRouteButton").addEventListener("click", copyRouteLink);
   $("healthButton").addEventListener("click", () => refreshCampusData());
-  $("zoomIn").addEventListener("click", () => { state.zoom = Math.min(1.6, state.zoom + .2); renderMap(); });
-  $("zoomOut").addEventListener("click", () => { state.zoom = Math.max(1, state.zoom - .2); renderMap(); });
+  $("zoomIn").addEventListener("click", () => changeMapZoom(1));
+  $("zoomOut").addEventListener("click", () => changeMapZoom(-1));
+  bindMapGestures($("mapCanvas"));
 
   document.querySelectorAll(".dialog-close").forEach(button => {
     button.addEventListener("click", () => closeDialog(button.closest("dialog")));
@@ -1489,7 +1912,11 @@ function bindEvents() {
   });
 
   $("scannerCloseButton").addEventListener("click", () => closeDialog($("scannerDialog")));
-  $("continueWithoutScanButton").addEventListener("click", () => closeDialog($("scannerDialog")));
+  $("continueWithoutScanButton").addEventListener("click", () => {
+    closeDialog($("scannerDialog"));
+    if (mobileViewport.matches) $("mobileManual").click();
+    else $("start").focus();
+  });
   $("scannerContinueButton").addEventListener("click", () => {
     closeDialog($("scannerDialog"));
     $($("scannerView").classList.contains("scanner-view--invalid") ? "start" : "target").focus();
@@ -1502,7 +1929,11 @@ function bindEvents() {
     resetScannerUi();
     startCamera();
   });
-  $("cameraCaptureButton").addEventListener("click", () => $("cameraCaptureInput").click());
+  $("cameraCaptureButton").addEventListener("click", () => {
+    const input = $("cameraCaptureInput");
+    input.value = "";
+    input.click();
+  });
   $("cameraCaptureInput").addEventListener("change", event => scanCapturedImage(event.target.files?.[0]));
   $("scannerDialog").addEventListener("close", stopCamera);
   $("scannerDialog").addEventListener("cancel", stopCamera);
@@ -1527,26 +1958,44 @@ async function boot() {
     const queryCampus = query.get("campus_id");
     const knownQueryCampus = campusById(queryCampus);
     const storedCampus = campusById(storageValue("navigator_campus"));
-    if (knownQueryCampus) {
-      await switchCampus(knownQueryCampus.id, {source: "link", respectQuery: true});
-    } else if (storedCampus) {
+    const linkedCampus = knownQueryCampus || (!queryCampus && (query.has("start_node") || query.has("node_id"))
+      ? campusById(catalog.default_campus_id) : null);
+    if (linkedCampus && !linkedCampus.temporarily_closed) {
+      mobile.screen = query.has("target") ? "map" : "welcome";
+      await switchCampus(linkedCampus.id, {source: "link", respectQuery: true});
+      if ($("start").value && !query.has("target")) mobile.screen = "located";
+      if (!$("start").value && (query.has("start_node") || query.has("node_id"))) showMobileError("qr");
+    } else if (storedCampus && !storedCampus.temporarily_closed) {
       await switchCampus(storedCampus.id, {source: "saved", respectQuery: false});
     } else {
-      const detected = await detectNearestCampus({announce: false});
+      const detected = !mobileViewport.matches && await detectNearestCampus({announce: false});
       if (!detected) {
         await switchCampus(catalog.default_campus_id, {source: "default", respectQuery: false});
         $("campusDetection").textContent = "Корпус по умолчанию · можно переключить";
       }
     }
     if (queryCampus && !knownQueryCampus) showToast("Неизвестный кампус в QR. Выберите корпус и старт вручную.", "error");
-    setInterval(() => {
-      if (!document.hidden) refreshCampusData({announce: false});
-    }, 10000);
+    if (knownQueryCampus?.temporarily_closed) showToast(`${knownQueryCampus.short_name} временно не работает`, "error");
+    if (queryCampus && (!knownQueryCampus || knownQueryCampus.temporarily_closed)) {
+      showMobileError(knownQueryCampus?.temporarily_closed ? "campus" : "qr");
+    }
+    if (!state.healthTimer) {
+      state.healthTimer = setInterval(() => {
+        if (!document.hidden) refreshCampusData({announce: false});
+      }, 10000);
+    }
+    if (mobile.error === "offline") mobile.error = "";
+    $("mobileCity").disabled = false;
+    renderMobileCampus();
+    renderMobile();
   } catch (error) {
     $("routeResult").replaceChildren(dataErrorMessage(error.message));
     $("mapStatus").className = "map-status map-status--error";
     $("mapStatus").lastChild.textContent = " Данные недоступны";
+    showMobileError("offline");
   }
 }
 
+bindMobileEvents();
+renderMobile();
 boot();

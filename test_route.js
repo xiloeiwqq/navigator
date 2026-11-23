@@ -24,6 +24,19 @@ check("every room is reachable from the entrance", () => {
   assert(route(graph, "hall1", "wc1").edges.includes("lift1-wc1"));
 });
 check("entry to A-101 is 14m", () => assert.equal(route(graph, "entrance", "lab1").length_m, 14));
+check("ЧЭМК: обе лестницы соединены со всеми опубликованными точками 4-го этажа", () => {
+  const chemk = catalog.campuses.find(campus => campus.id === "cheboksary-chemk");
+  assert.deepEqual(chemk.floors.map(floor => floor.id), ["4"]);
+  assert.equal(chemk.entrance_node_id, "stairs-1");
+  for (const start of ["stairs-1", "stairs-6"]) {
+    for (const target of chemk.nodes.filter(node => node.room && node.id !== start)) {
+      assert(route(chemk, start, target.id), `нет маршрута из ${start} в ${target.id}`);
+    }
+  }
+  const corridor = chemk.nodes.filter(node => node.waypoint);
+  assert(corridor.every(node => node.y === corridor[0].y));
+  assert.equal(route(chemk, "stairs-1", "psychologist", [], true), null);
+});
 check("stairs to A-201 is 25m", () => {
   const result = route(graph, "entrance", "lab2");
   assert.equal(result.length_m, 25);

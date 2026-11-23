@@ -85,9 +85,11 @@ async function main() {
     check("catalog endpoint lists every campus", () => {
       assert.equal(catalogResponse.response.status, 200);
       const catalog = JSON.parse(catalogResponse.body);
-      assert.equal(catalog.campuses.length, 12);
+      assert.equal(catalog.campuses.length, 14);
       assert.equal(catalog.default_campus_id, "moscow-main");
       assert(catalog.campuses.some(campus => campus.city === "Нижний Новгород"));
+      assert.deepEqual(Object.fromEntries(catalog.campuses.filter(campus => campus.city === "Чебоксары")
+        .map(campus => [campus.short_name, campus.temporarily_closed])), {"ЦУМ": false, "ДДЮТ": true, "ЧЭМК": false});
     });
 
     const dataResponse = await get("/api/data?campus_id=kazan-tech");
@@ -105,7 +107,19 @@ async function main() {
       const health = JSON.parse(healthResponse.body);
       assert.equal(health.status, "ok");
       assert.equal(health.campus_id, "kazan-tech");
-      assert.equal(health.campus_count, 12);
+      assert.equal(health.campus_count, 14);
+    });
+
+    const chemkResponse = await get("/api/data?campus_id=cheboksary-chemk");
+    const chemk = JSON.parse(chemkResponse.body);
+    check("ЧЭМК отдаёт векторный план без демонстрационного расписания", () => {
+      assert.equal(chemkResponse.response.status, 200);
+      assert.equal(chemk.graph.demo, false);
+      assert.equal(chemk.schedule.source, "none");
+      assert.equal(chemk.campuses.find(campus => campus.id === chemk.campus_id).auto_select, false);
+      assert.deepEqual(chemk.graph.floors.map(floor => floor.id), ["4"]);
+      assert(chemk.graph.floors[0].outline);
+      assert.equal(chemk.graph.floors[0].zones.length, 18);
     });
 
     const templateResponse = await get("/api/data?campus_id=yekaterinburg-campus");

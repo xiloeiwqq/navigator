@@ -190,6 +190,8 @@ def campus_summary(graph):
         "timezone": graph["timezone"],
         "coordinates": graph["coordinates"],
         "floor_count": len(graph["floors"]),
+        "temporarily_closed": graph.get("temporarily_closed") is True,
+        "auto_select": graph.get("auto_select") is not False,
     }
 
 
@@ -248,7 +250,7 @@ def load_data(folder: Path, catalog=None):
     for source in campus_rows:
         graph = materialize_campus(source, templates)
         graph["version"] = catalog["version"]
-        graph["demo"] = bool(catalog["demo"] or source.get("demo", False))
+        graph["demo"] = bool(source.get("demo", catalog["demo"]))
         validate_campus(graph)
 
         campus_real = [row for row in real_rows if row["campus_id"] == graph["id"]]
@@ -259,7 +261,7 @@ def load_data(folder: Path, catalog=None):
         elif campus_demo:
             timetable = campus_demo
             schedule = {"source": "demo", "filename": "timetable.demo.csv", "demo": True}
-        elif graph.get("editor_created"):
+        elif graph.get("editor_created") or graph.get("schedule_optional") is True:
             timetable = []
             schedule = {"source": "none", "filename": None, "demo": False}
         else:
@@ -366,11 +368,12 @@ def editor_campus(draft, existing):
         image = floor.get("image")
         floor = {**original_floors.get(floor_id, {"zones": []}), "id": floor_id, "label": floor["label"]}
         if image is not None:
-            if not isinstance(image, str) or len(image) > 1_600_000 or not image.startswith("data:image/jpeg;base64,"):
-                raise ValueError("Некорректная или слишком большая схема этажа")
-            binary = base64.b64decode(image.split(",", 1)[1], validate=True)
-            if not binary.startswith(b"\xff\xd8\xff") or not binary.endswith(b"\xff\xd9"):
-                raise ValueError("Схема этажа должна быть изображением JPEG")
+            if image != floor.get("image"):
+                if not isinstance(image, str) or len(image) > 1_600_000 or not image.startswith("data:image/jpeg;base64,"):
+                    raise ValueError("Некорректная или слишком большая схема этажа")
+                binary = base64.b64decode(image.split(",", 1)[1], validate=True)
+                if not binary.startswith(b"\xff\xd8\xff") or not binary.endswith(b"\xff\xd9"):
+                    raise ValueError("Схема этажа должна быть изображением JPEG")
             floor["image"] = image
         else:
             floor.pop("image", None)
@@ -501,6 +504,10 @@ def make_server(host="0.0.0.0", port=8080, data_dir=None):
         "/": ("index.html", "text/html; charset=utf-8"),
         "/index.html": ("index.html", "text/html; charset=utf-8"),
         "/styles.css": ("styles.css", "text/css; charset=utf-8"),
+        "/theme.js": ("theme.js", "text/javascript; charset=utf-8"),
+        "/assets/floors/chemk-4.png": ("assets/floors/chemk-4.png", "image/png"),
+        "/mobile.css": ("mobile.css", "text/css; charset=utf-8"),
+        "/mobile.js": ("mobile.js", "text/javascript; charset=utf-8"),
         "/route.js": ("route.js", "text/javascript; charset=utf-8"),
         "/app.js": ("app.js", "text/javascript; charset=utf-8"),
         "/editor": ("editor.html", "text/html; charset=utf-8"),
@@ -508,6 +515,11 @@ def make_server(host="0.0.0.0", port=8080, data_dir=None):
         "/map-plan.js": ("map-plan.js", "text/javascript; charset=utf-8"),
         "/vendor/jsQR.js": ("vendor/jsQR.js", "text/javascript; charset=utf-8"),
     }
+    mobile_types = {".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf"}
+    for asset in (ROOT / "assets" / "mobile").iterdir():
+        if asset.is_file() and asset.suffix in mobile_types:
+            relative = f"assets/mobile/{asset.name}"
+            assets[f"/{relative}"] = (relative, mobile_types[asset.suffix])
     if (ROOT / "certs" / "ca.crt").exists():
         assets["/ca.crt"] = ("certs/ca.crt", "application/x-x509-ca-cert")
 

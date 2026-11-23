@@ -200,12 +200,14 @@ function loadData(catalog = JSON.parse(fs.readFileSync(graphFile, "utf8"))) {
   for (const source of catalog.campuses) {
     const graph = materializeCampus(source, templates);
     graph.version = catalog.version;
-    graph.demo = Boolean(catalog.demo || source.demo);
+    graph.demo = Boolean(source.demo ?? catalog.demo);
     validateCampus(graph);
     const campusReal = realRows.filter(row => row.campus_id === graph.id);
     const campusDemo = demoRows.filter(row => row.campus_id === graph.id);
     const timetable = campusReal.length ? campusReal : campusDemo;
-    if (!timetable.length && !graph.editor_created) throw new Error(`Расписание кампуса ${graph.id} пусто`);
+    if (!timetable.length && !graph.editor_created && graph.schedule_optional !== true) {
+      throw new Error(`Расписание кампуса ${graph.id} пусто`);
+    }
     const schedule = campusReal.length
       ? {source: "real", filename: "timetable.csv", demo: false}
       : campusDemo.length
@@ -220,7 +222,9 @@ function loadData(catalog = JSON.parse(fs.readFileSync(graphFile, "utf8"))) {
       short_name: graph.short_name,
       timezone: graph.timezone,
       coordinates: graph.coordinates,
-      floor_count: graph.floors.length
+      floor_count: graph.floors.length,
+      temporarily_closed: graph.temporarily_closed === true,
+      auto_select: graph.auto_select !== false
     });
   }
   return {version: catalog.version, demo: catalog.demo, default_campus_id: catalog.default_campus_id, campuses, campus_data: campusData};
@@ -251,9 +255,9 @@ function editorCampus(draft, existing) {
   const originalFloors = new Map(existing?.floors.map(floor => [floor.id, floor]));
   campus.floors = campus.floors.map(({id, label, image}) => {
     if (typeof id !== "string" || !SAFE_ID.test(id) || !editorLabel(label)) throw new Error("У каждого этажа должны быть ID и название");
-    const floor = {...(originalFloors.get(id) || {zones: []}), id, label};
-    delete floor.image;
-    if (image != null) {
+    const original = originalFloors.get(id);
+    const floor = {...(original || {zones: []}), id, label};
+    if (image != null && image !== original?.image) {
       const prefix = "data:image/jpeg;base64,";
       if (typeof image !== "string" || image.length > 1_600_000 || !image.startsWith(prefix)) {
         throw new Error("Некорректная или слишком большая схема этажа");
@@ -264,8 +268,9 @@ function editorCampus(draft, existing) {
           binary.subarray(-2).toString("hex") !== "ffd9") {
         throw new Error("Схема этажа должна быть изображением JPEG");
       }
-      floor.image = image;
     }
+    if (image == null) delete floor.image;
+    else floor.image = image;
     if (!floor.zones?.length && !floor.image) throw new Error("Загрузите схему для каждого этажа");
     return floor;
   });
@@ -377,6 +382,10 @@ const assets = new Map([
   ["/", ["index.html", "text/html; charset=utf-8"]],
   ["/index.html", ["index.html", "text/html; charset=utf-8"]],
   ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
+  ["/theme.js", ["theme.js", "text/javascript; charset=utf-8"]],
+  ["/assets/floors/chemk-4.png", ["assets/floors/chemk-4.png", "image/png"]],
+  ["/mobile.css", ["mobile.css", "text/css; charset=utf-8"]],
+  ["/mobile.js", ["mobile.js", "text/javascript; charset=utf-8"]],
   ["/route.js", ["route.js", "text/javascript; charset=utf-8"]],
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/editor", ["editor.html", "text/html; charset=utf-8"]],
@@ -384,6 +393,14 @@ const assets = new Map([
   ["/map-plan.js", ["map-plan.js", "text/javascript; charset=utf-8"]],
   ["/vendor/jsQR.js", ["vendor/jsQR.js", "text/javascript; charset=utf-8"]]
 ]);
+const mobileTypes = {".svg": "image/svg+xml", ".png": "image/png", ".ttf": "font/ttf"};
+for (const asset of fs.readdirSync(path.join(ROOT, "assets", "mobile"), {withFileTypes: true})) {
+  const type = mobileTypes[path.extname(asset.name)];
+  if (asset.isFile() && type) {
+    const relative = `assets/mobile/${asset.name}`;
+    assets.set(`/${relative}`, [relative, type]);
+  }
+}
 
 function send(response, status, body, contentType) {
   response.writeHead(status, {

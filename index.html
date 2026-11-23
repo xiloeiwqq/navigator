@@ -3,13 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#123c31">
+  <meta name="theme-color" content="#f2f2f2">
   <meta name="description" content="Мультикампусный навигатор: ближайший корпус, расписание по системному времени, маршруты между этажами и живая стрелка без GPS.">
   <title>Мультикампусный навигатор</title>
+  <script src="/theme.js"></script>
   <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/mobile.css" media="(max-width: 600px)">
 </head>
-<body>
+<body class="navigator-page">
   <a class="skip-link" href="#main">Перейти к содержимому</a>
+
+  <section class="mobile-only mobile-screen mobile-welcome" id="mobileWelcome" aria-labelledby="mobileWelcomeTitle">
+    <button class="theme-toggle mobile-theme-toggle" type="button" aria-label="Тёмная тема" aria-pressed="false" data-theme-toggle></button>
+    <img class="mobile-logo" src="/assets/mobile/logo.svg" alt="Сингулярити, центр детского образования">
+    <div class="mobile-welcome-copy">
+      <img class="mobile-mascot" src="/assets/mobile/mascot.svg" alt="">
+      <h1 id="mobileWelcomeTitle">Навигатор<br>колледжа</h1>
+      <p>Построим маршрут до нужного кабинета, рабочего места или зоны встречи. Отсканируй ближайший QR-код на стене, чтобы определить твоё местоположение.</p>
+    </div>
+    <div class="mobile-screen-actions">
+      <button class="mobile-action" id="mobileWelcomeScan" type="button" disabled><img src="/assets/mobile/camera.svg" alt="">Отсканировать QR-код</button>
+      <button class="mobile-action mobile-action--secondary" id="mobileManual" type="button" disabled>Выбрать маршрут вручную</button>
+    </div>
+  </section>
+
+  <section class="mobile-only mobile-screen mobile-located" id="mobileLocated" aria-labelledby="mobileLocatedTitle" hidden>
+    <img class="mobile-campus-photo" id="mobileCampusPhoto" src="/assets/mobile/campus-photo.png" alt="" loading="lazy">
+    <svg class="mobile-campus-plan" id="mobileLocatedPlan" role="img" aria-label="План этажа" hidden></svg>
+    <div class="mobile-located-copy">
+      <h1 id="mobileLocatedTitle">Ты здесь: <strong id="mobileLocation"></strong></h1>
+      <p>Местоположение определено.<br>Куда хочешь отправиться?</p>
+    </div>
+    <article class="mobile-next-lesson" id="mobileLesson" hidden>
+      <p><strong>Следующая пара:</strong> <span id="mobileLessonTitle"></span><br><span id="mobileLessonRoom"></span></p>
+      <button class="mobile-action mobile-action--orange" id="mobileLessonRoute" type="button">Построить маршрут туда →</button>
+    </article>
+    <div class="mobile-screen-actions">
+      <button class="mobile-action" id="mobileChooseDestination" type="button">Выбрать пункт назначения</button>
+      <button class="mobile-link" id="mobileChangeOrigin" type="button">Это не моё местоположение (изменить)</button>
+    </div>
+  </section>
+
+  <section class="mobile-only mobile-screen mobile-error" id="mobileError" aria-labelledby="mobileErrorTitle" hidden>
+    <div class="mobile-error-art">
+      <div class="mobile-error-frame">
+        <img id="mobileOfflineImage" src="/assets/mobile/offline.png" alt="" hidden>
+        <img id="mobileErrorImage" alt="" hidden>
+      </div>
+      <img id="mobileWifiLabel" class="mobile-wifi-label" src="/assets/mobile/wifi-label.png" alt="" hidden>
+    </div>
+    <div class="mobile-error-copy" aria-live="polite">
+      <h1 id="mobileErrorTitle"></h1>
+      <p id="mobileErrorText"></p>
+    </div>
+    <div class="mobile-screen-actions">
+      <button class="mobile-action" id="mobileErrorAction" type="button"></button>
+      <button class="mobile-action mobile-action--secondary" id="mobileErrorRetry" type="button" hidden>Сканировать снова</button>
+      <button class="mobile-link" id="mobileErrorCapture" type="button" hidden>Открыть системную камеру</button>
+    </div>
+  </section>
 
   <svg class="svg-sprite" aria-hidden="true">
     <symbol id="icon-pin" viewBox="0 0 24 24"><path d="M20 10c0 5.2-8 11-8 11S4 15.2 4 10a8 8 0 1 1 16 0Z"/><circle cx="12" cy="10" r="2.7"/></symbol>
@@ -34,10 +86,21 @@
   </svg>
 
   <header class="topbar">
+    <div class="mobile-only mobile-campus-bar">
+      <div class="mobile-select">
+        <select id="mobileCity" hidden disabled></select>
+        <button id="mobileCityTrigger" type="button" aria-controls="mobileCityMenu" aria-expanded="false" disabled><span>Выбери город</span><img src="/assets/mobile/down.svg" alt=""></button>
+        <div id="mobileCityMenu" class="mobile-campus-menu" aria-label="Города" hidden></div>
+      </div>
+      <div class="mobile-select">
+        <select id="mobileCampus" hidden disabled></select>
+        <button id="mobileCampusTrigger" type="button" aria-controls="mobileCampusMenu" aria-expanded="false" disabled><span>Выбери корпус</span><img src="/assets/mobile/down.svg" alt=""></button>
+        <div id="mobileCampusMenu" class="mobile-campus-menu" aria-label="Корпуса" hidden></div>
+      </div>
+    </div>
     <div class="topbar__inner">
       <a class="brand" href="/">
-        <span class="brand__mark"><svg><use href="#icon-route"/></svg></span>
-        <span class="brand__text"><strong>Навигатор</strong><small id="brandCampus">выбираем корпус</small></span>
+        <img class="navigator-logo" src="/assets/mobile/logo.svg" alt="Сингулярити, центр детского образования">
       </a>
       <div class="topbar__actions">
         <div class="campus-picker">
@@ -55,6 +118,7 @@
           <small id="clockTimezone">Синхронизация…</small>
         </div>
         <span class="demo-pill" id="modePill"><i></i> Демо-режим</span>
+        <button class="theme-toggle" type="button" aria-label="Тёмная тема" aria-pressed="false" data-theme-toggle></button>
         <button class="icon-button" id="settingsButton" type="button" aria-label="Параметры маршрута" aria-haspopup="dialog">
           <svg><use href="#icon-settings"/></svg>
           <span class="notification-dot" id="settingsDot" hidden></span>
@@ -65,11 +129,7 @@
 
   <main id="main" class="page-shell">
     <section class="welcome" aria-labelledby="pageTitle">
-      <div class="welcome__copy">
-        <p class="eyebrow"><span class="eyebrow__dot"></span> Навигация по корпусу</p>
-        <h1 id="pageTitle">Куда вам нужно?</h1>
-        <p>Найдём следующую пару и построим короткий путь между этажами.</p>
-      </div>
+      <h1 id="pageTitle">Навигатор колледжа</h1>
       <div class="location-card">
         <span class="location-card__icon"><svg><use href="#icon-pin"/></svg></span>
         <span class="location-card__copy"><small>Точка навигации</small><strong id="currentLocation">Загружаем карту…</strong></span>
@@ -77,24 +137,39 @@
     </section>
 
     <section class="navigator-layout" aria-label="Построение маршрута">
-      <aside class="route-panel panel">
+      <aside class="route-panel panel" id="mobileRoutePanel">
+        <div class="mobile-only mobile-sheet-head">
+          <button class="mobile-grip" id="mobileStepsToggle" type="button" aria-label="Показать шаги маршрута" aria-controls="routeResult" aria-expanded="false" hidden></button>
+          <div class="mobile-sheet-title">
+            <h2 id="mobileRouteTitle">Твой маршрут</h2>
+            <button class="mobile-icon" id="mobileScan" type="button" aria-label="Сканировать QR-код"><img src="/assets/mobile/scan.svg" alt=""></button>
+            <button class="mobile-icon" id="mobileSwap" type="button" aria-label="Поменять точки местами"><img src="/assets/mobile/swap.svg" alt=""></button>
+          </div>
+        </div>
         <div class="route-setup">
           <div class="panel-title">
-            <div><p class="section-kicker">Ваш маршрут</p><h2>Параметры пути</h2></div>
-            <span class="qr-badge"><svg><use href="#icon-qr"/></svg> QR</span>
+            <h2>Твой маршрут</h2>
           </div>
 
           <form id="routeForm" novalidate>
             <div class="places">
               <label class="place-field">
-                <span class="place-field__marker place-field__marker--start"></span>
+                <img class="place-field__marker place-field__marker--start" src="/assets/mobile/origin.svg" alt="">
                 <span class="place-field__body"><small>Откуда</small><select id="start" aria-label="Начальная точка"></select></span>
               </label>
-              <span class="places__line" aria-hidden="true"></span>
               <label class="place-field">
-                <span class="place-field__marker place-field__marker--finish"><svg><use href="#icon-pin"/></svg></span>
+                <img class="place-field__marker place-field__marker--finish" src="/assets/mobile/destination.svg" alt="">
                 <span class="place-field__body"><small>Куда</small><select id="target" aria-label="Помещение назначения"></select></span>
               </label>
+            </div>
+            <div class="mobile-only mobile-places">
+              <button class="mobile-place" type="button" id="mobileStart" aria-controls="mobilePlaceMenu" aria-expanded="false">
+                <img src="/assets/mobile/origin.svg" alt=""><span><small>Откуда</small><strong>Выбрать</strong></span><img src="/assets/mobile/down.svg" alt="">
+              </button>
+              <button class="mobile-place" type="button" id="mobileTarget" aria-controls="mobilePlaceMenu" aria-expanded="false">
+                <img src="/assets/mobile/destination.svg" alt=""><span><small>Куда</small><strong>Выбрать</strong></span><img src="/assets/mobile/down.svg" alt="">
+              </button>
+              <div class="mobile-place-menu" id="mobilePlaceMenu" hidden></div>
             </div>
 
             <div class="schedule-fields">
@@ -130,23 +205,25 @@
             </div>
           </section>
         </div>
+        <button class="mobile-only mobile-action mobile-edit-route" id="mobileEditRoute" type="button" hidden>Изменить маршрут</button>
       </aside>
 
       <section class="map-panel panel" aria-labelledby="mapTitle">
         <header class="map-toolbar">
           <div>
-            <p class="section-kicker">Схема корпуса</p>
+            <p class="section-kicker" id="brandCampus">Выбираем корпус</p>
             <h2 id="mapTitle">Карта этажей</h2>
           </div>
           <div class="map-toolbar__actions">
-            <div class="floor-tabs" id="floorTabs" role="tablist" aria-label="Выбор этажа"></div>
             <button class="map-scan-button" id="changeLocationButton" type="button" aria-label="Сканировать QR-код текущего положения" title="Сканировать QR-код">
-              <svg><use href="#icon-qr"/></svg><span>Сканировать QR</span>
+              <img src="/assets/mobile/scan.svg" alt=""><span>Сканировать QR</span>
             </button>
           </div>
         </header>
 
         <div class="map-stage" id="mapStage">
+          <div class="mobile-only mobile-map-prompt" id="mobileMapPrompt" role="status" hidden><img src="/assets/mobile/pick.svg" alt="">Нажми на нужную зону на карте <button type="button" id="mobileCancelPick" aria-label="Отменить выбор точки">×</button></div>
+          <button class="mobile-only mobile-icon mobile-settings" id="mobileSettings" type="button" aria-label="Настройки" aria-haspopup="dialog"><svg><use href="#icon-settings"/></svg></button>
           <div class="map-status" id="mapStatus"><span></span> Маршрут строится</div>
           <div class="orientation-controls" aria-label="Положение и компас">
             <div class="orientation-controls__state">
@@ -157,12 +234,14 @@
             <button id="resetCalibrationButton" type="button">Сбросить поправку</button>
           </div>
           <div class="map-canvas" id="mapCanvas" role="tabpanel" aria-live="polite"></div>
+          <div class="floor-tabs" id="floorTabs" role="tablist" aria-label="Выбор этажа"></div>
           <div class="map-zoom" aria-label="Масштаб карты">
             <button id="zoomIn" type="button" aria-label="Увеличить карту">+</button>
             <button id="zoomOut" type="button" aria-label="Уменьшить карту">−</button>
           </div>
         </div>
 
+        <p class="map-source-note" id="mapSourceNote" hidden></p>
         <footer class="map-footer">
           <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-arrow"></i> Точка навигации</span><span><i class="legend-checkpoint"></i> Чекпоинт</span></div>
           <button class="text-button" id="copyRouteButton" type="button"><svg><use href="#icon-copy"/></svg> Скопировать ссылку</button>
@@ -170,52 +249,54 @@
       </section>
     </section>
 
-    <p class="prototype-note"><span>Прототип</span> Карта демонстрационная, источник расписания указан в форме. Перед запуском в корпусе маршруты нужно проверить физическим обходом.</p>
+    <p class="prototype-note" id="prototypeNote"><span>Прототип</span> Карта демонстрационная, источник расписания указан в форме. Перед запуском в корпусе маршруты нужно проверить физическим обходом.</p>
   </main>
 
   <dialog class="scanner-dialog" id="scannerDialog" aria-labelledby="scannerTitle">
     <div class="scanner-shell">
       <header class="scanner-head">
-        <div class="scanner-brand"><span><svg><use href="#icon-qr"/></svg></span><div><small>Навигатор кампуса</small><h2 id="scannerTitle">Сканирование QR</h2></div></div>
+        <div class="scanner-brand"><span><img src="/assets/mobile/scan.svg" alt=""></span><h2 id="scannerTitle">Сканировать QR</h2></div>
         <button class="scanner-close" id="scannerCloseButton" type="button" aria-label="Закрыть сканер"><svg><use href="#icon-close"/></svg></button>
       </header>
 
       <div class="scanner-view" id="scannerView">
         <video id="cameraVideo" autoplay muted playsinline aria-label="Изображение с камеры"></video>
         <canvas id="cameraCanvas" hidden></canvas>
-        <div class="camera-placeholder" id="cameraPlaceholder">
+        <div class="camera-placeholder" id="cameraPlaceholder" role="status">
           <span><svg><use href="#icon-camera"/></svg></span>
-          <strong>Подключаем камеру</strong>
-          <p>Разрешите доступ во всплывающем окне браузера.</p>
+          <strong id="cameraPlaceholderTitle">Подключаем камеру</strong>
+          <p id="cameraPlaceholderText">Разрешите доступ во всплывающем окне браузера.</p>
         </div>
         <div class="scan-target" aria-hidden="true"><i></i><i></i><i></i><i></i><span></span></div>
         <p class="scanner-status" id="scannerStatus" role="status">Наведите камеру на QR-код</p>
 
         <div class="camera-fallback" id="cameraFallback" hidden>
-          <span class="camera-fallback__icon"><svg><use href="#icon-camera"/></svg></span>
+          <img class="scanner-illustration" src="/assets/mobile/camera-error.png" alt="" loading="lazy">
           <h3 id="cameraFallbackTitle">Не удалось включить камеру</h3>
           <p id="cameraFallbackText">Проверьте разрешение камеры в браузере.</p>
           <button class="button button--camera" id="cameraRetryButton" type="button">Попробовать ещё раз</button>
-          <button class="button button--capture" id="cameraCaptureButton" type="button">Открыть системную камеру</button>
-          <input id="cameraCaptureInput" type="file" accept="image/*" capture="environment" hidden>
         </div>
 
         <section class="scan-success" id="scanSuccess" aria-live="polite" hidden>
           <span class="scan-success__icon"><svg><use href="#icon-check"/></svg></span>
+          <img class="scanner-illustration scanner-illustration--invalid" src="/assets/mobile/qr-error.png" alt="" loading="lazy">
           <p id="scanSuccessKicker">QR-код распознан</p>
           <h3 id="scanSuccessTitle">Точка найдена</h3>
           <span id="scanSuccessText">Стартовая точка маршрута обновлена.</span>
-          <code id="scanPayload"></code>
           <div class="scan-success__actions">
-            <button class="button button--primary" id="scanAgainButton" type="button">Сканировать ещё</button>
-            <button class="button button--scanner-secondary" id="scannerContinueButton" type="button">Перейти в навигатор</button>
+            <button class="button button--camera" id="scannerContinueButton" type="button">Перейти в навигатор</button>
+            <button class="button button--scanner-secondary" id="scanAgainButton" type="button">Сканировать ещё</button>
           </div>
         </section>
       </div>
 
       <footer class="scanner-foot">
-        <p><svg><use href="#icon-camera"/></svg> Видео обрабатывается только на устройстве и никуда не отправляется.</p>
-        <button id="continueWithoutScanButton" type="button">Продолжить без сканирования</button>
+        <div class="scanner-foot__actions">
+          <button class="button button--scanner-secondary" id="cameraCaptureButton" type="button"><svg><use href="#icon-camera"/></svg> Сканировать по фото</button>
+          <button id="continueWithoutScanButton" type="button">Выбрать место вручную</button>
+        </div>
+        <input id="cameraCaptureInput" type="file" accept="image/*" capture="environment" hidden>
+        <p>Видео и фото обрабатываются на устройстве.</p>
       </footer>
     </div>
   </dialog>
@@ -226,6 +307,19 @@
       <button class="icon-button icon-button--light dialog-close" type="button" aria-label="Закрыть настройки"><svg><use href="#icon-close"/></svg></button>
     </div>
     <div class="dialog-body">
+      <label class="theme-setting">
+        <span>Тема оформления</span>
+        <select data-theme-select><option value="system">Как в системе</option><option value="light">Светлая</option><option value="dark">Тёмная</option></select>
+      </label>
+      <div class="mobile-only mobile-settings-tools">
+        <label for="mobileGroup">Учебная группа</label>
+        <select id="mobileGroup"></select>
+        <button class="text-button" id="mobileScheduleRoute" type="button">К следующей паре</button>
+        <button class="text-button" id="mobileDetect" type="button">Определить ближайший корпус</button>
+        <button class="text-button" id="mobileCompass" type="button">Включить компас</button>
+        <button class="text-button" id="mobileReset" type="button">Сбросить поправку</button>
+        <button class="text-button" id="mobileCopy" type="button">Скопировать ссылку на маршрут</button>
+      </div>
       <label class="switch-row">
         <span class="switch-row__icon"><svg><use href="#icon-accessible"/></svg></span>
         <span class="switch-row__copy"><strong>Доступная среда</strong><small>Строить маршрут только через лифты, пандусы и доступные проходы</small></span>
@@ -249,6 +343,7 @@
   <script src="/vendor/jsQR.js"></script>
   <script src="/route.js"></script>
   <script src="/map-plan.js"></script>
+  <script src="/mobile.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

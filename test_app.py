@@ -8,7 +8,7 @@ from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import urlopen
 
-from app import ROOT, load_data, make_server, schedule_context
+from app import ROOT, editor_campus, load_data, make_server, schedule_context
 from prepare_qr import urls
 
 
@@ -16,6 +16,26 @@ DEMO_DATE = "2026-11-18"
 
 
 class AppTests(unittest.TestCase):
+    def test_chemk_uses_real_plan_and_keeps_it_in_editor(self):
+        data = load_data(ROOT / "data")
+        chemk = data["campus_data"]["cheboksary-chemk"]
+        graph = chemk["graph"]
+        self.assertFalse(graph["demo"])
+        self.assertEqual(chemk["schedule"]["source"], "none")
+        self.assertEqual([floor["id"] for floor in graph["floors"]], ["4"])
+        floor = graph["floors"][0]
+        self.assertNotIn("image", floor)
+        self.assertEqual(len(floor["zones"]), 18)
+        self.assertEqual(editor_campus(copy.deepcopy(graph), graph)["floors"][0], floor)
+        changed = copy.deepcopy(graph)
+        changed["floors"][0]["image"] = "/arbitrary.png"
+        with self.assertRaises(ValueError):
+            editor_campus(changed, graph)
+        legacy = copy.deepcopy(graph)
+        image = "/assets/floors/chemk-4.png"
+        legacy["floors"][0]["image"] = image
+        self.assertEqual(editor_campus(copy.deepcopy(legacy), legacy)["floors"][0]["image"], image)
+
     def test_multicampus_data_and_qr_ids(self):
         data = load_data(ROOT / "data")
         self.assertEqual(data["default_campus_id"], "moscow-main")
@@ -34,8 +54,13 @@ class AppTests(unittest.TestCase):
                 "sochi-campus",
                 "tyumen-campus",
                 "cheboksary-campus",
+                "cheboksary-ddyut",
+                "cheboksary-chemk",
             },
         )
+        cheboksary = [campus for campus in data["campuses"] if campus["city"] == "Чебоксары"]
+        self.assertEqual({campus["short_name"]: campus["temporarily_closed"] for campus in cheboksary},
+                         {"ЦУМ": False, "ДДЮТ": True, "ЧЭМК": False})
         self.assertEqual(len(data["graph"]["nodes"]), 26)
         self.assertEqual(len(data["timetable"]), 15)
         self.assertEqual(sum(len(item["timetable"]) for item in data["campus_data"].values()), 75)
@@ -202,13 +227,13 @@ class AppTests(unittest.TestCase):
 
             with urlopen(base + "/api/campuses", timeout=3) as response:
                 catalog = json.load(response)
-            self.assertEqual(len(catalog["campuses"]), 12)
+            self.assertEqual(len(catalog["campuses"]), 14)
 
             with urlopen(base + "/api/health?campus_id=kazan-tech", timeout=3) as response:
                 health = json.load(response)
             self.assertEqual(health["status"], "ok")
             self.assertEqual(health["campus_id"], "kazan-tech")
-            self.assertEqual(health["campus_count"], 12)
+            self.assertEqual(health["campus_count"], 14)
 
             with urlopen(base + "/api/data?campus_id=kazan-tech", timeout=3) as response:
                 kazan = json.load(response)
