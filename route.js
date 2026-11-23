@@ -166,7 +166,9 @@ function routePosition(graph, result, distanceM) {
         const node = ratio < .5 ? from : to;
         return {x: node.x, y: node.y, floor: node.floor, edge_id: edge.id, progress: ratio, distance_m: distance, arrived: false, node_id: node.id};
       }
-      let points = edge.path?.[from.floor] || [[from.x, from.y], [to.x, to.y]];
+      let points = edge.path && Object.hasOwn(edge.path, from.floor)
+        ? edge.path[from.floor]
+        : [[from.x, from.y], [to.x, to.y]];
       if (edge.from !== from.id) points = [...points].reverse();
       const point = interpolatePoints(points, ratio);
       return {...point, floor: from.floor, edge_id: edge.id, progress: ratio, distance_m: distance, arrived: false, node_id: null};

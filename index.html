@@ -72,7 +72,7 @@
       </div>
       <div class="location-card">
         <span class="location-card__icon"><svg><use href="#icon-pin"/></svg></span>
-        <span class="location-card__copy"><small>Сейчас вы здесь</small><strong id="currentLocation">Определяем точку…</strong></span>
+        <span class="location-card__copy"><small>Точка навигации</small><strong id="currentLocation">Загружаем карту…</strong></span>
       </div>
     </section>
 
@@ -164,7 +164,7 @@
         </div>
 
         <footer class="map-footer">
-          <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-arrow"></i> Вы здесь</span><span><i class="legend-checkpoint"></i> Чекпоинт</span></div>
+          <div class="map-legend"><span><i class="legend-line"></i> Маршрут</span><span><i class="legend-arrow"></i> Точка навигации</span><span><i class="legend-checkpoint"></i> Чекпоинт</span></div>
           <button class="text-button" id="copyRouteButton" type="button"><svg><use href="#icon-copy"/></svg> Скопировать ссылку</button>
         </footer>
       </section>
@@ -232,14 +232,15 @@
         <input id="accessible" type="checkbox"><span class="switch" aria-hidden="true"></span>
       </label>
       <div class="settings-section">
-        <div class="settings-section__title"><div><strong>Закрытые проходы</strong><small>Для проверки перестроения маршрута</small></div><span id="closedCount">0</span></div>
+        <div class="settings-section__title"><div><strong>Закрытые проходы</strong><small>Флажки действуют только в этой вкладке</small></div><span id="closedCount">0</span></div>
         <div class="closed-list" id="closedList"></div>
       </div>
       <div class="data-card">
         <span class="data-card__dot" id="serverStatusDot"></span>
         <div><strong id="serverStatus">Данные корпуса загружены</strong><small id="dataVersion">Проверяем версию…</small></div>
-        <button id="healthButton" type="button">Проверить API</button>
+        <button id="healthButton" type="button">Обновить данные</button>
       </div>
+      <a class="text-button campus-editor-link" id="campusEditorLink" href="/editor">Редактор кампусов</a>
     </div>
   </dialog>
 
@@ -247,6 +248,7 @@
 
   <script src="/vendor/jsQR.js"></script>
   <script src="/route.js"></script>
+  <script src="/map-plan.js"></script>
   <script src="/app.js"></script>
 </body>
 </html>

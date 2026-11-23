@@ -1,7 +1,6 @@
 "use strict";
 
 const $ = id => document.getElementById(id);
-const SVG_NS = "http://www.w3.org/2000/svg";
 const state = {
   catalog: null,
   campusId: null,
@@ -15,13 +14,12 @@ const state = {
   accessible: false,
   zoom: 1,
   locationSource: "manual",
-  hasQrStart: false,
   explicitTarget: false,
   lessonRequest: 0,
   campusRequest: 0,
+  dataError: "",
   clockMinute: "",
   clockTimer: null,
-  scheduleTimer: null,
   position: null,
   navigation: {routeKey: "", distanceM: 0, arrived: false},
   sensors: {
@@ -45,13 +43,6 @@ const scanner = {
   requestId: 0
 };
 let toastTimer;
-
-function svgElement(name, attributes = {}, text) {
-  const node = document.createElementNS(SVG_NS, name);
-  for (const [key, value] of Object.entries(attributes)) node.setAttribute(key, String(value));
-  if (text !== undefined) node.textContent = text;
-  return node;
-}
 
 function icon(name, className = "") {
   const svg = svgElement("svg", {"aria-hidden": "true", class: className});
@@ -120,6 +111,7 @@ function resetScannerUi() {
   $("scanSuccessTitle").textContent = "Точка найдена";
   $("scanSuccessText").textContent = "Стартовая точка маршрута обновлена.";
   $("scannerContinueButton").hidden = false;
+  $("scannerContinueButton").textContent = "Перейти в навигатор";
   $("scanSuccess").querySelector("use")?.setAttribute("href", "#icon-check");
   $("cameraCaptureInput").value = "";
 }
@@ -200,9 +192,11 @@ async function completeScan(payload) {
   if (scanned) {
     try {
       if (scanned.campusId !== state.campusId) {
-        await switchCampus(scanned.campusId, {source: "qr", respectQuery: false});
+        const switched = await switchCampus(scanned.campusId, {source: "qr", scannedNodeId: scanned.nodeId});
+        if (switched) node = nodeById(scanned.nodeId);
+      } else {
+        node = nodeById(scanned.nodeId);
       }
-      node = nodeById(scanned.nodeId);
     } catch (error) {
       loadError = error;
     }
@@ -214,14 +208,16 @@ async function completeScan(payload) {
   if (node) {
     applyCheckpoint(node, "qr");
     $("scanSuccessTitle").textContent = node.label;
-    $("scanSuccessText").textContent = `Положение и поправка обновлены: ${formatFloor(node.floor).toLowerCase()}. Маршрут перестроен.`;
+    $("scanSuccessText").textContent = state.result
+      ? "Маршрут перестроен от новой стартовой точки."
+      : "Стартовая точка обновлена.";
   } else {
     $("scanSuccessKicker").textContent = "Неизвестная метка";
     $("scanSuccessTitle").textContent = "Точка не найдена";
     $("scanSuccessText").textContent = loadError
       ? `Не удалось загрузить корпус: ${loadError.message}`
-      : "Этот QR-код не содержит известные campus_id и start_node/node_id. Попробуйте метку навигатора ещё раз.";
-    $("scannerContinueButton").hidden = true;
+      : "Выберите старт вручную или отсканируйте другую метку навигатора.";
+    $("scannerContinueButton").textContent = "Выбрать старт вручную";
     $("scanSuccess").querySelector("use")?.setAttribute("href", "#icon-alert");
   }
   $("scanSuccess").hidden = false;
@@ -309,6 +305,7 @@ async function startCamera() {
 }
 
 function showScanner() {
+  if (!state.data) return;
   resetScannerUi();
   openDialog($("scannerDialog"));
   startCamera();
@@ -403,7 +400,8 @@ function updateQueryStart(id) {
   const url = new URL(window.location.href);
   url.searchParams.delete("node_id");
   url.searchParams.set("campus_id", state.campusId);
-  url.searchParams.set("start_node", id);
+  if (id) url.searchParams.set("start_node", id);
+  else url.searchParams.delete("start_node");
   url.searchParams.delete("at");
   history.replaceState({}, "", url);
 }
@@ -413,10 +411,11 @@ function updateCurrentLocation() {
   $("currentLocation").textContent = current ? `${current.label} · ${formatFloor(current.floor)}` : "Точка не выбрана";
 }
 
-function updateScheduleSource(demo) {
+function updateScheduleSource(schedule) {
   const source = $("scheduleSource");
-  source.textContent = demo ? "Тестовое расписание для проверки функционала" : "Актуальное расписание корпуса";
-  source.classList.toggle("schedule-source--real", !demo);
+  source.textContent = schedule.source === "none" ? "Расписание пока не добавлено"
+    : schedule.demo ? "Тестовое расписание для проверки функционала" : "Актуальное расписание корпуса";
+  source.classList.toggle("schedule-source--real", schedule.source === "real");
 }
 
 function dataMode(data) {
@@ -463,7 +462,7 @@ function startClock() {
   state.clockTimer = setInterval(updateClock, 1000);
 }
 
-function populateControls({respectQuery = true} = {}) {
+function populateControls({respectQuery = true, selection = null} = {}) {
   const {graph, timetable} = state.data;
   const start = $("start");
   const target = $("target");
@@ -472,6 +471,8 @@ function populateControls({respectQuery = true} = {}) {
   target.replaceChildren();
   group.replaceChildren();
 
+  option(start, "", "Выберите стартовую точку");
+  option(target, "", "Выберите помещение");
   for (const node of graph.nodes) option(start, node.id, `${node.label} · ${formatFloor(node.floor)}`);
   const destinations = graph.nodes.filter(node => node.room);
   for (const floor of graph.floors) {
@@ -480,35 +481,32 @@ function populateControls({respectQuery = true} = {}) {
     }
   }
   for (const groupId of [...new Set(timetable.map(lesson => lesson.group_id))]) option(group, groupId, groupId);
+  if (!timetable.length) option(group, "", "Нет расписания");
+  group.disabled = !timetable.length;
 
   const query = new URLSearchParams(location.search);
-  const queryStart = respectQuery ? query.get("start_node") || query.get("node_id") : null;
+  const queryStart = selection?.start ?? (respectQuery ? query.get("start_node") || query.get("node_id") : null);
   const knownStart = graph.nodes.some(node => node.id === queryStart);
-  const fallbackStart = graph.entrance_node_id && graph.nodes.some(node => node.id === graph.entrance_node_id)
-    ? graph.entrance_node_id
-    : graph.nodes.some(node => node.id === "entrance") ? "entrance" : graph.nodes[0].id;
-  start.value = knownStart ? queryStart : fallbackStart;
+  start.value = knownStart ? queryStart : "";
 
-  const queryTarget = respectQuery ? query.get("target") : null;
+  const queryTarget = selection?.target ?? (respectQuery ? query.get("target") : null);
   const knownTarget = destinations.some(node => node.id === queryTarget);
-  const fallbackTarget = ["room1", "lab1"].find(id => destinations.some(node => node.id === id)) || destinations[0]?.id;
-  target.value = knownTarget ? queryTarget : fallbackTarget;
-  state.explicitTarget = knownTarget;
+  target.value = knownTarget ? queryTarget : "";
+  state.explicitTarget = knownTarget && (selection?.explicitTarget ?? true);
 
-  const preferredGroup = (respectQuery ? query.get("group_id") : "") || savedGroup() || "ИСП-21";
+  const preferredGroup = selection?.group || (respectQuery ? query.get("group_id") : "") || savedGroup() || "ИСП-21";
   group.value = [...group.options].some(item => item.value === preferredGroup) ? preferredGroup : group.options[0]?.value;
 
   if (respectQuery) state.accessible = ["1", "true"].includes((query.get("accessible") || "").toLowerCase());
-  state.activeFloor = nodeById(start.value).floor;
-  state.locationSource = knownStart ? "qr" : "manual";
-  state.hasQrStart = knownStart;
+  state.locationSource = knownStart ? selection?.source || "qr" : "manual";
   const startNode = nodeById(start.value);
-  state.position = {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id};
+  state.activeFloor = startNode?.floor ?? graph.floors[0].id;
+  state.position = startNode ? {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id} : null;
   state.navigation = {routeKey: "", distanceM: 0, arrived: false};
   updateCurrentLocation();
 
   if (queryStart && !knownStart) {
-    setTimeout(() => showToast("QR содержит неизвестную точку — выбран главный вход", "error"), 150);
+    showToast(selection ? "Прежняя стартовая точка удалена. Выберите новую." : "Неизвестная QR-точка. Выберите старт вручную.", "error");
   }
 }
 
@@ -573,24 +571,17 @@ async function detectNearestCampus({announce = true, switchCampusOnSuccess = tru
   }
 }
 
-async function switchCampus(campusId, {source = "manual", respectQuery = false} = {}) {
+async function switchCampus(campusId, {source = "manual", respectQuery = false, scannedNodeId} = {}) {
   const campus = campusById(campusId);
   if (!campus) throw new Error(`Неизвестный кампус: ${campusId}`);
   const requestId = ++state.campusRequest;
   $("campusSelect").disabled = true;
   try {
-    const query = new URLSearchParams({campus_id: campusId});
-    const response = await fetch(`/api/data?${query}`, {cache: "no-store"});
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+    const payload = await fetchCampusData(campusId);
     if (requestId !== state.campusRequest) return false;
+    if (scannedNodeId && !payload.graph.nodes.some(node => node.id === scannedNodeId)) return false;
 
     state.campusId = campusId;
-    state.data = payload;
-    state.result = null;
-    state.alternatives = {fastest: null, accessible: null};
-    state.lesson = null;
-    state.scheduleContext = null;
     if (source === "manual") saveValue("navigator_campus", campusId);
     updateCampusQuery(campusId, {resetRoute: !respectQuery});
     $("campusSelect").value = campusId;
@@ -600,28 +591,57 @@ async function switchCampus(campusId, {source = "manual", respectQuery = false} 
     else if (source === "saved") $("campusDetection").textContent = "Сохранённый выбор";
     else if (source === "link") $("campusDetection").textContent = "Корпус из ссылки";
 
-    populateControls({respectQuery});
-    populateSettings();
-    updateSettingsState();
-    const mode = dataMode(state.data);
-    const scheduleDemo = Boolean(state.data.schedule?.demo);
-    updateScheduleSource(scheduleDemo);
-    $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Production";
-    $("dataVersion").textContent = `Версия ${state.data.graph.version} · ${mode} · ${scheduleDemo ? "тестовое расписание" : "расписание корпуса"}`;
-    startClock();
-    findRoute();
-    await refreshSchedule({silent: true, updateTarget: !state.explicitTarget});
-    checkHealth({announce: false});
+    applyCampusData(payload, {respectQuery, selection: null});
     return true;
   } finally {
     if (requestId === state.campusRequest) $("campusSelect").disabled = false;
   }
 }
 
-function populateSettings() {
+async function fetchCampusData(campusId) {
+  const query = new URLSearchParams({campus_id: campusId});
+  const response = await fetch(`/api/data?${query}`, {cache: "no-store", signal: AbortSignal.timeout(8000)});
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.error || `HTTP ${response.status}`);
+  if (payload.campus_id !== campusId || !payload.graph?.floors?.length ||
+      !payload.graph.nodes?.length || !Array.isArray(payload.graph.edges) ||
+      !Array.isArray(payload.timetable)) throw new Error("Некорректные данные корпуса");
+  return payload;
+}
+
+function applyCampusData(payload, {respectQuery = false, selection = null} = {}) {
+  const localClosures = selection ? [...state.closed].filter(id => !edgeById(id)?.closed) : [];
+  state.data = payload;
+  $("campusEditorLink").href = `/editor?${new URLSearchParams({campus_id: payload.campus_id})}`;
+  if (state.catalog && JSON.stringify(state.catalog.campuses) !== JSON.stringify(payload.campuses)) {
+    state.catalog.campuses = payload.campuses;
+    populateCampusPicker();
+    $("campusSelect").value = payload.campus_id;
+  }
+  state.dataError = "";
+  state.lesson = null;
+  state.scheduleContext = null;
+  populateControls({respectQuery, selection});
+  populateSettings(localClosures);
+  updateSettingsState();
+  const mode = dataMode(payload);
+  const scheduleDemo = Boolean(payload.schedule?.demo);
+  updateScheduleSource(payload.schedule);
+  $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Production";
+  const scheduleLabel = payload.schedule.source === "none" ? "без расписания"
+    : scheduleDemo ? "тестовое расписание" : "расписание корпуса";
+  $("dataVersion").textContent = `Версия ${payload.graph.version} · ${mode} · ${scheduleLabel}`;
+  $("serverStatus").textContent = "Данные корпуса загружены";
+  $("serverStatusDot").classList.remove("data-card__dot--error");
+  startClock();
+  findRoute();
+  refreshSchedule({silent: true});
+}
+
+function populateSettings(localClosures = []) {
   const list = $("closedList");
   list.replaceChildren();
-  state.closed = new Set(state.data.graph.edges.filter(edge => edge.closed === true).map(edge => edge.id));
+  state.closed = new Set(state.data.graph.edges.filter(edge => edge.closed || localClosures.includes(edge.id)).map(edge => edge.id));
   for (const edge of state.data.graph.edges) {
     const label = document.createElement("label");
     label.className = "closed-item";
@@ -638,7 +658,7 @@ function populateSettings() {
     const input = document.createElement("input");
     input.type = "checkbox";
     input.value = edge.id;
-    input.checked = edge.closed === true;
+    input.checked = state.closed.has(edge.id);
     input.disabled = edge.closed === true;
     input.setAttribute("aria-label", `Закрыть проход: ${title.textContent}`);
     input.addEventListener("change", () => {
@@ -726,8 +746,8 @@ function applyScheduleContext(context, {routeToNext = false, updateTarget = fals
     findRoute();
     if (!silent) {
       const target = nodeById(context.route_to);
-      const origin = context.route_from ? nodeById(context.route_from).label : nodeById($("start").value).label;
-      showToast(`Маршрут к следующей паре: ${origin} → ${target.label}`);
+      const origin = nodeById($("start").value);
+      showToast(origin ? `Маршрут к следующей паре: ${origin.label} → ${target.label}` : "Выберите стартовую точку.");
     }
     return;
   }
@@ -740,9 +760,16 @@ function applyScheduleContext(context, {routeToNext = false, updateTarget = fals
 }
 
 async function refreshSchedule({silent = false, routeToNext = false, updateTarget = false} = {}) {
+  if (!state.data || state.dataError) return;
   const requestId = ++state.lessonRequest;
   const button = $("nextLessonButton");
   const groupId = $("group").value;
+  if (!groupId) {
+    button.disabled = true;
+    button.removeAttribute("aria-busy");
+    $("lessonCard").hidden = true;
+    return;
+  }
   const lookupTime = currentLocalTime(state.data.graph.timezone);
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
@@ -889,6 +916,10 @@ function renderRouteResult() {
   container.replaceChildren();
   const start = nodeById($("start").value);
   const target = nodeById($("target").value);
+  if (state.dataError) {
+    container.append(dataErrorMessage(state.dataError));
+    return;
+  }
   renderRouteOptions(container);
 
   if (!state.result) {
@@ -898,11 +929,12 @@ function renderRouteResult() {
     const copy = document.createElement("div");
     const title = document.createElement("h3");
     title.id = "routeResultTitle";
-    title.textContent = "Маршрут недоступен";
+    title.textContent = start && target ? "Маршрут недоступен" : "Выберите маршрут";
     const text = document.createElement("p");
-    text.textContent = state.accessible && state.alternatives.fastest
-      ? "Безбарьерного пути нет. Выберите быстрый маршрут или откройте доступный проход."
-      : "Откройте один из проходов или измените параметры пути.";
+    text.textContent = !start ? "Выберите старт вручную или отсканируйте QR у входа."
+      : !target ? "Выберите помещение назначения."
+      : state.accessible && state.alternatives.fastest ? "Безбарьерного пути нет. Доступен маршрут с лестницей."
+      : "Выберите другую стартовую точку или аудиторию либо обратитесь к сотруднику корпуса.";
     copy.append(title, text);
     error.append(copy);
     container.append(error);
@@ -983,7 +1015,7 @@ function renderRouteResult() {
 }
 
 function edgePoints(edge, floorId) {
-  if (edge.path && edge.path[floorId]) return edge.path[floorId];
+  if (edge.path && Object.hasOwn(edge.path, floorId)) return edge.path[floorId];
   const from = nodeById(edge.from);
   const to = nodeById(edge.to);
   if (from.floor === floorId && to.floor === floorId) return [[from.x, from.y], [to.x, to.y]];
@@ -1106,7 +1138,6 @@ async function enableSensors() {
 
 function applyCheckpoint(node, source = "checkpoint") {
   moveStartToNode(node, source);
-  state.hasQrStart = source === "qr";
   state.sensors.calibrationNode = node.label;
   if (Number.isFinite(node.heading) && Number.isFinite(state.sensors.rawHeading)) {
     state.sensors.offset = normalizeHeading(node.heading - state.sensors.rawHeading);
@@ -1120,35 +1151,17 @@ function applyCheckpoint(node, source = "checkpoint") {
 }
 
 function resetCalibration() {
+  if (!state.data) return;
+  const start = nodeById($("start").value);
+  if (!start) return;
   state.sensors.offset = 0;
   state.sensors.calibrationNode = null;
-  const start = nodeById($("start").value);
   state.position = {x: start.x, y: start.y, floor: start.floor, nodeId: start.id};
   state.navigation = {routeKey: "", distanceM: 0, arrived: false};
   state.activeFloor = start.floor;
   setCompassStatus(state.sensors.enabled ? "Поправка сброшена · магнитный север" : "Поправка сброшена", "pending");
   findRoute();
   showToast("Положение возвращено к стартовой точке, поправка компаса сброшена");
-}
-
-function drawPlan(svg, floor) {
-  svg.append(svgElement("rect", {x: 18, y: 28, width: 404, height: 234, rx: 8, class: "floor-shell"}));
-  for (const zone of floor.zones || []) {
-    const className = zone.type === "corridor" ? "map-corridor" : `map-room${zone.type === "service" || zone.type === "stairs" || zone.type === "lift" ? " map-room--service" : ""}`;
-    svg.append(svgElement("rect", {x: zone.x, y: zone.y, width: zone.width, height: zone.height, rx: zone.type === "corridor" ? 0 : 3, class: className}));
-    if (zone.label) svg.append(svgElement("text", {x: zone.x + zone.width / 2, y: zone.y + zone.height / 2 + 3, class: "map-room-label"}, zone.label));
-    if (zone.type === "stairs") {
-      for (let offset = 11; offset < zone.width - 4; offset += 9) {
-        svg.append(svgElement("line", {x1: zone.x + offset, y1: zone.y + 9, x2: zone.x + offset, y2: zone.y + zone.height - 9, class: "stairs-lines"}));
-      }
-    }
-    if (zone.type === "lift") {
-      const cx = zone.x + zone.width / 2;
-      const cy = zone.y + zone.height / 2;
-      svg.append(svgElement("path", {d: `M${cx} ${cy-13}v26M${cx-5} ${cy-8}l5-5 5 5M${cx-5} ${cy+8}l5 5 5-5`, class: "lift-glyph"}));
-    }
-  }
-  svg.append(svgElement("text", {x: 385, y: 248, class: "map-floor-label", "text-anchor": "end"}, floor.id));
 }
 
 function drawMarker(svg, node) {
@@ -1268,14 +1281,16 @@ function renderMap() {
   }
 
   const target = nodeById($("target").value);
-  if (target.floor === floor.id) drawMarker(svg, target);
-  if (state.position?.floor === floor.id) drawLivePosition(svg, state.position);
+  if (!state.dataError && target?.floor === floor.id) drawMarker(svg, target);
+  if (!state.dataError && state.position?.floor === floor.id) drawLivePosition(svg, state.position);
   canvas.append(svg);
 
   const status = $("mapStatus");
   status.className = `map-status${state.result ? "" : " map-status--error"}`;
   const remaining = state.result ? Math.max(0, Math.round(state.result.length_m - state.navigation.distanceM)) : 0;
-  const statusText = state.navigation.arrived
+  const statusText = state.dataError ? " Данные недоступны"
+    : !target || !$("start").value ? " Выберите старт и цель"
+    : state.result && state.navigation.arrived
     ? " Вы на месте"
     : state.result ? ` Осталось · ${remaining} м` : " Путь не найден";
   status.replaceChildren(document.createElement("span"), document.createTextNode(statusText));
@@ -1285,6 +1300,18 @@ function renderMap() {
 
 function findRoute() {
   if (!state.data) return;
+  const startNode = nodeById($("start").value);
+  const targetNode = nodeById($("target").value);
+  if (state.dataError || !startNode || !targetNode) {
+    state.result = null;
+    state.alternatives = {fastest: null, accessible: null};
+    state.navigation = {routeKey: "", distanceM: 0, arrived: false};
+    state.position = startNode ? {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id} : null;
+    renderRouteResult();
+    renderMap();
+    $("copyRouteButton").disabled = true;
+    return;
+  }
   try {
     const start = $("start").value;
     const target = $("target").value;
@@ -1304,11 +1331,13 @@ function findRoute() {
     if (!routeFloors.has(state.activeFloor)) state.activeFloor = currentFloor;
     renderRouteResult();
     renderMap();
+    $("copyRouteButton").disabled = !state.result;
   } catch (error) {
     state.result = null;
     state.alternatives = {fastest: null, accessible: null};
     renderRouteResult();
     renderMap();
+    $("copyRouteButton").disabled = true;
     showToast(error.message, "error");
   }
 }
@@ -1342,26 +1371,61 @@ async function copyRouteLink() {
   }
 }
 
-async function checkHealth({announce = true} = {}) {
+function dataErrorMessage(error) {
+  const message = document.createElement("div");
+  message.className = "route-error";
+  message.setAttribute("role", "alert");
+  message.append(icon("alert"));
+  const copy = document.createElement("div");
+  const title = document.createElement("h3");
+  title.id = "routeResultTitle";
+  title.textContent = "Не удалось загрузить данные корпуса";
+  const text = document.createElement("p");
+  text.textContent = error;
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "text-button data-retry";
+  retry.textContent = "Повторить загрузку";
+  retry.addEventListener("click", async () => {
+    retry.disabled = true;
+    await (state.data ? refreshCampusData() : boot());
+    retry.disabled = false;
+  });
+  copy.append(title, text, retry);
+  message.append(copy);
+  return message;
+}
+
+async function refreshCampusData({announce = true} = {}) {
   const button = $("healthButton");
+  if (!state.data || button.disabled || $("campusSelect").disabled) return;
+  const requestId = state.campusRequest;
   button.disabled = true;
   try {
-    const query = new URLSearchParams({campus_id: state.campusId});
-    const response = await fetch(`/api/health?${query}`, {cache: "no-store"});
-    const health = await response.json().catch(() => ({}));
-    if (!response.ok || health.status !== "ok") throw new Error(health.error || `HTTP ${response.status}`);
-    $("serverStatus").textContent = "API доступен";
-    $("serverStatusDot").classList.remove("data-card__dot--error");
-    const scheduleLabel = health.schedule_demo ? "тестовое расписание" : "расписание корпуса";
-    $("dataVersion").textContent = `Версия ${health.graph_version || health.version} · ${health.mode} · ${scheduleLabel}`;
-    $("modePill").lastChild.textContent = health.mode === "DEMO" ? " Демо-режим" : " Production";
-    updateScheduleSource(Boolean(health.schedule_demo));
-    if (announce) showToast("Сервер и данные доступны");
+    const payload = await fetchCampusData(state.campusId);
+    if (requestId !== state.campusRequest) return;
+    if (state.dataError || JSON.stringify(payload) !== JSON.stringify(state.data)) {
+      applyCampusData(payload, {selection: {
+        start: $("start").value,
+        target: $("target").value,
+        group: $("group").value,
+        explicitTarget: state.explicitTarget,
+        source: state.locationSource
+      }});
+    }
+    if (announce) showToast("Данные корпуса актуальны");
   } catch (error) {
-    $("serverStatus").textContent = "API недоступен";
+    if (requestId !== state.campusRequest) return;
+    const changed = state.dataError !== error.message;
+    state.dataError = error.message || "Сервер не ответил";
+    state.lessonRequest++;
+    $("nextLessonButton").disabled = true;
+    $("nextLessonButton").removeAttribute("aria-busy");
+    $("lessonCard").hidden = true;
+    $("serverStatus").textContent = "Данные недоступны";
     $("serverStatusDot").classList.add("data-card__dot--error");
-    $("dataVersion").textContent = error.message;
-    if (announce) showToast(`Ошибка API: ${error.message}`, "error");
+    $("dataVersion").textContent = state.dataError;
+    if (changed || announce) findRoute();
   } finally {
     button.disabled = false;
   }
@@ -1385,8 +1449,12 @@ function bindEvents() {
   });
   $("start").addEventListener("change", () => {
     const start = nodeById($("start").value);
-    state.hasQrStart = false;
-    moveStartToNode(start, "manual");
+    if (start) moveStartToNode(start, "manual");
+    else {
+      state.locationSource = "manual";
+      updateQueryStart("");
+      updateCurrentLocation();
+    }
     findRoute();
   });
   $("campusSelect").addEventListener("change", async event => {
@@ -1409,7 +1477,7 @@ function bindEvents() {
   $("compassButton").addEventListener("click", enableSensors);
   $("resetCalibrationButton").addEventListener("click", resetCalibration);
   $("copyRouteButton").addEventListener("click", copyRouteLink);
-  $("healthButton").addEventListener("click", () => checkHealth());
+  $("healthButton").addEventListener("click", () => refreshCampusData());
   $("zoomIn").addEventListener("click", () => { state.zoom = Math.min(1.6, state.zoom + .2); renderMap(); });
   $("zoomOut").addEventListener("click", () => { state.zoom = Math.max(1, state.zoom - .2); renderMap(); });
 
@@ -1424,7 +1492,7 @@ function bindEvents() {
   $("continueWithoutScanButton").addEventListener("click", () => closeDialog($("scannerDialog")));
   $("scannerContinueButton").addEventListener("click", () => {
     closeDialog($("scannerDialog"));
-    $("mapStage").scrollIntoView({behavior: "smooth", block: "center"});
+    $($("scannerView").classList.contains("scanner-view--invalid") ? "start" : "target").focus();
   });
   $("cameraRetryButton").addEventListener("click", () => {
     resetScannerUi();
@@ -1445,13 +1513,14 @@ function bindEvents() {
 
 async function boot() {
   try {
-    const response = await fetch("/api/campuses", {cache: "no-store"});
+    const response = await fetch("/api/campuses", {cache: "no-store", signal: AbortSignal.timeout(8000)});
     const catalog = await response.json().catch(() => ({}));
     if (!response.ok) throw new Error(catalog.error || `HTTP ${response.status}`);
     if (!Array.isArray(catalog.campuses) || !catalog.campuses.length) throw new Error("Каталог кампусов пуст");
+    const firstCatalog = !state.catalog;
     state.catalog = catalog;
     populateCampusPicker();
-    bindEvents();
+    if (firstCatalog) bindEvents();
     $("campusSelect").disabled = true;
 
     const query = new URLSearchParams(location.search);
@@ -1469,22 +1538,12 @@ async function boot() {
         $("campusDetection").textContent = "Корпус по умолчанию · можно переключить";
       }
     }
-    if (queryCampus && !knownQueryCampus) showToast("В ссылке указан неизвестный кампус — выбран доступный", "error");
-    if (!state.hasQrStart) setTimeout(showScanner, 250);
+    if (queryCampus && !knownQueryCampus) showToast("Неизвестный кампус в QR. Выберите корпус и старт вручную.", "error");
+    setInterval(() => {
+      if (!document.hidden) refreshCampusData({announce: false});
+    }, 10000);
   } catch (error) {
-    const container = $("routeResult");
-    container.innerHTML = "";
-    const message = document.createElement("div");
-    message.className = "route-error";
-    message.append(icon("alert"));
-    const copy = document.createElement("div");
-    const title = document.createElement("h3");
-    title.textContent = "Не удалось загрузить данные";
-    const text = document.createElement("p");
-    text.textContent = `${error.message}. Запустите приложение через python app.py.`;
-    copy.append(title, text);
-    message.append(copy);
-    container.append(message);
+    $("routeResult").replaceChildren(dataErrorMessage(error.message));
     $("mapStatus").className = "map-status map-status--error";
     $("mapStatus").lastChild.textContent = " Данные недоступны";
   }

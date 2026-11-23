@@ -5,6 +5,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const {randomUUID, timingSafeEqual} = require("node:crypto");
 
 const ROOT = __dirname;
 const TIMETABLE_FIELDS = ["campus_id", "group_id", "date", "start", "end", "room_id", "title"];
@@ -64,7 +65,7 @@ function validTime(value) {
 }
 
 function validateCampus(graph) {
-  if (!SAFE_ID.test(graph.id || "")) throw new Error("Некорректный ID кампуса");
+  if (typeof graph.id !== "string" || !SAFE_ID.test(graph.id)) throw new Error("Некорректный ID кампуса");
   for (const field of ["city", "name", "short_name", "timezone"]) {
     if (typeof graph[field] !== "string" || !graph[field].trim()) throw new Error(`У кампуса ${graph.id} не заполнено поле ${field}`);
   }
@@ -81,11 +82,12 @@ function validateCampus(graph) {
   if (nodes.has(undefined) || nodes.size !== graph.nodes.length) throw new Error(`Повторяющийся ID точки в кампусе ${graph.id}`);
 
   for (const node of graph.nodes) {
-    if (!SAFE_ID.test(node.id || "") || !floors.has(node.floor) || typeof node.room !== "boolean") {
+    if (typeof node.id !== "string" || !SAFE_ID.test(node.id) || !floors.has(node.floor) || typeof node.room !== "boolean") {
       throw new Error(`Некорректная точка ${node.id || "без ID"} кампуса ${graph.id}`);
     }
     if ("qr" in node && typeof node.qr !== "boolean") throw new Error(`Некорректный qr у точки ${node.id}`);
     if ("terminal" in node && typeof node.terminal !== "boolean") throw new Error(`Некорректный terminal у точки ${node.id}`);
+    if ("standalone" in node && typeof node.standalone !== "boolean") throw new Error(`Некорректный standalone у точки ${node.id}`);
     if ("heading" in node && (!Number.isFinite(node.heading) || node.heading < 0 || node.heading >= 360)) {
       throw new Error(`Некорректный heading у точки ${node.id}`);
     }
@@ -98,7 +100,7 @@ function validateCampus(graph) {
   const edgeIds = new Set();
   const neighbors = new Map(graph.nodes.map(node => [node.id, new Set()]));
   for (const edge of graph.edges) {
-    if (!SAFE_ID.test(edge.id || "") || edgeIds.has(edge.id) || !nodes.has(edge.from) || !nodes.has(edge.to) || edge.from === edge.to) {
+    if (typeof edge.id !== "string" || !SAFE_ID.test(edge.id) || edgeIds.has(edge.id) || !nodes.has(edge.from) || !nodes.has(edge.to) || edge.from === edge.to) {
       throw new Error(`Некорректный проход ${edge.id || "без ID"} кампуса ${graph.id}`);
     }
     if (!Number.isFinite(edge.length_m) || edge.length_m <= 0 || typeof edge.accessible !== "boolean") {
@@ -113,14 +115,23 @@ function validateCampus(graph) {
   const entrance = graph.entrance_node_id || "entrance";
   if (!nodes.has(entrance)) throw new Error(`Неизвестный главный вход кампуса ${graph.id}`);
   const reached = new Set();
-  const pending = [graph.nodes[0].id];
+  const pending = [entrance];
   while (pending.length) {
     const current = pending.pop();
     if (reached.has(current)) continue;
     reached.add(current);
     pending.push(...[...neighbors.get(current)].filter(id => !reached.has(id)));
   }
-  if (reached.size !== nodes.size) throw new Error(`Граф кампуса ${graph.id} несвязный`);
+  if (!graph.editor_created) {
+    for (const node of nodes.values()) {
+      const degree = neighbors.get(node.id).size;
+      if (node.standalone && !degree) continue;
+      if (!reached.has(node.id)) throw new Error(`Граф кампуса ${graph.id} несвязный`);
+      if ((node.qr && !degree) || (!node.room && node.id !== entrance && !node.terminal && degree < 2)) {
+        throw new Error(`Висячий или изолированный навигационный узел: ${node.id}`);
+      }
+    }
+  }
 }
 
 function validateTimetable(graph, timetable) {
@@ -164,8 +175,9 @@ function materializeCampus(source, templates) {
   return graph;
 }
 
-function loadData() {
-  const catalog = JSON.parse(fs.readFileSync(path.join(dataDirectory, "graph.json"), "utf8"));
+const graphFile = path.join(dataDirectory, "graph.json");
+
+function loadData(catalog = JSON.parse(fs.readFileSync(graphFile, "utf8"))) {
   if (typeof catalog.demo !== "boolean" || !catalog.version || !Array.isArray(catalog.campuses) || !catalog.campuses.length) {
     throw new Error("Некорректный каталог кампусов");
   }
@@ -183,7 +195,7 @@ function loadData() {
   const unknown = [...new Set([...realRows, ...demoRows].map(row => row.campus_id).filter(id => !campusIds.includes(id)))];
   if (unknown.length) throw new Error(`Расписание содержит неизвестные кампусы: ${unknown.join(", ")}`);
 
-  const campusData = {};
+  const campusData = Object.create(null);
   const campuses = [];
   for (const source of catalog.campuses) {
     const graph = materializeCampus(source, templates);
@@ -193,10 +205,12 @@ function loadData() {
     const campusReal = realRows.filter(row => row.campus_id === graph.id);
     const campusDemo = demoRows.filter(row => row.campus_id === graph.id);
     const timetable = campusReal.length ? campusReal : campusDemo;
-    if (!timetable.length) throw new Error(`Расписание кампуса ${graph.id} пусто`);
+    if (!timetable.length && !graph.editor_created) throw new Error(`Расписание кампуса ${graph.id} пусто`);
     const schedule = campusReal.length
       ? {source: "real", filename: "timetable.csv", demo: false}
-      : {source: "demo", filename: "timetable.demo.csv", demo: true};
+      : campusDemo.length
+        ? {source: "demo", filename: "timetable.demo.csv", demo: true}
+        : {source: "none", filename: null, demo: false};
     validateTimetable(graph, timetable);
     campusData[graph.id] = {graph, timetable, schedule};
     campuses.push({
@@ -210,6 +224,95 @@ function loadData() {
     });
   }
   return {version: catalog.version, demo: catalog.demo, default_campus_id: catalog.default_campus_id, campuses, campus_data: campusData};
+}
+
+function editorLabel(value, limit = 160) {
+  return typeof value === "string" && value.length <= limit && Boolean(value.trim());
+}
+
+function editorCampus(draft, existing) {
+  const campus = {...existing};
+  if (!existing) campus.editor_created = true;
+  for (const key of ["id", "city", "name", "short_name", "timezone", "coordinates"]) {
+    campus[key] = draft[key];
+  }
+  campus.entrance_node_id = Object.hasOwn(draft, "entrance_node_id")
+    ? draft.entrance_node_id : existing?.entrance_node_id ?? "entrance";
+  for (const key of ["city", "name", "short_name", "timezone"]) {
+    if (!editorLabel(campus[key], 120)) throw new Error(`Некорректное поле ${key}`);
+  }
+  const object = value => value !== null && typeof value === "object" && !Array.isArray(value);
+  for (const [key, limit] of [["floors", 24], ["nodes", 800], ["edges", 1600]]) {
+    if (!Array.isArray(draft[key]) || draft[key].length > limit || !draft[key].every(object)) {
+      throw new Error(`Некорректный список ${key}`);
+    }
+    campus[key] = draft[key];
+  }
+  const originalFloors = new Map(existing?.floors.map(floor => [floor.id, floor]));
+  campus.floors = campus.floors.map(({id, label, image}) => {
+    if (typeof id !== "string" || !SAFE_ID.test(id) || !editorLabel(label)) throw new Error("У каждого этажа должны быть ID и название");
+    const floor = {...(originalFloors.get(id) || {zones: []}), id, label};
+    delete floor.image;
+    if (image != null) {
+      const prefix = "data:image/jpeg;base64,";
+      if (typeof image !== "string" || image.length > 1_600_000 || !image.startsWith(prefix)) {
+        throw new Error("Некорректная или слишком большая схема этажа");
+      }
+      const encoded = image.slice(prefix.length);
+      const binary = Buffer.from(encoded, "base64");
+      if (binary.toString("base64") !== encoded || binary.subarray(0, 3).toString("hex") !== "ffd8ff" ||
+          binary.subarray(-2).toString("hex") !== "ffd9") {
+        throw new Error("Схема этажа должна быть изображением JPEG");
+      }
+      floor.image = image;
+    }
+    if (!floor.zones?.length && !floor.image) throw new Error("Загрузите схему для каждого этажа");
+    return floor;
+  });
+  const floors = new Set(campus.floors.map(floor => floor.id));
+  if (!campus.nodes.every(node => editorLabel(node.label))) throw new Error("У каждой точки должно быть название");
+  for (const edge of campus.edges) {
+    if (!editorLabel(edge.name) || !["corridor", "stairs", "lift"].includes(edge.kind)) {
+      throw new Error("У каждого прохода должны быть название и тип");
+    }
+    for (const key of ["path", "instructions"]) {
+      if (Object.hasOwn(edge, key) && !object(edge[key])) throw new Error("Некорректная геометрия или инструкция прохода");
+    }
+    for (const [floor, points] of Object.entries(edge.path || {})) {
+      if (!floors.has(floor) || !Array.isArray(points) || points.length < 2 || points.length > 200 ||
+          points.some(point => !Array.isArray(point) || point.length !== 2 ||
+            point.some((value, axis) => !Number.isFinite(value) || value < 0 || value > [440, 290][axis]))) {
+        throw new Error("Некорректная линия прохода");
+      }
+    }
+    if (!Object.values(edge.instructions || {}).every(value => editorLabel(value, 500))) {
+      throw new Error("Некорректная инструкция прохода");
+    }
+  }
+  return campus;
+}
+
+function publishCampus({campus: draft, version, creating}) {
+  const original = fs.readFileSync(graphFile, "utf8");
+  const catalog = JSON.parse(original);
+  if (version !== catalog.version) return null;
+  if (!draft || typeof draft !== "object" || typeof creating !== "boolean") throw new Error("Некорректные данные кампуса");
+  const index = catalog.campuses.findIndex(campus => campus.id === draft.id);
+  if (creating !== (index === -1)) throw new Error("ID нового кампуса уже занят или редактируемый кампус удалён");
+  const existing = creating ? undefined : materializeCampus(catalog.campuses[index], catalog.templates || {});
+  const campus = editorCampus(draft, existing);
+  catalog.campuses[creating ? catalog.campuses.length : index] = campus;
+  catalog.version = `editor-${randomUUID()}`;
+  loadData(catalog);
+  const temporary = path.join(dataDirectory, `.graph-${randomUUID()}.tmp`);
+  try {
+    fs.writeFileSync(temporary, JSON.stringify(catalog, null, 2) + "\n", {encoding: "utf8", flag: "wx"});
+    if (fs.readFileSync(graphFile, "utf8") !== original) return null;
+    fs.renameSync(temporary, graphFile);
+  } finally {
+    fs.rmSync(temporary, {force: true});
+  }
+  return catalog.version;
 }
 
 function selectedCampus(data, campusId) {
@@ -276,6 +379,9 @@ const assets = new Map([
   ["/styles.css", ["styles.css", "text/css; charset=utf-8"]],
   ["/route.js", ["route.js", "text/javascript; charset=utf-8"]],
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
+  ["/editor", ["editor.html", "text/html; charset=utf-8"]],
+  ["/editor.js", ["editor.js", "text/javascript; charset=utf-8"]],
+  ["/map-plan.js", ["map-plan.js", "text/javascript; charset=utf-8"]],
   ["/vendor/jsQR.js", ["vendor/jsQR.js", "text/javascript; charset=utf-8"]]
 ]);
 
@@ -293,11 +399,49 @@ function send(response, status, body, contentType) {
 
 const host = argument("--host", "0.0.0.0");
 const port = Number(argument("--port", "8080"));
+const editorPassword = Buffer.from(process.env.NAVIGATOR_EDITOR_PASSWORD ?? "dattebayo");
+const maxEditorRequest = 16 * 1024 * 1024;
 
-const server = http.createServer((request, response) => {
+function sendJson(response, status, payload) {
+  send(response, status, Buffer.from(JSON.stringify(payload)), "application/json; charset=utf-8");
+}
+
+const server = http.createServer(async (request, response) => {
   const requestUrl = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   const pathname = requestUrl.pathname;
   try {
+    if (request.method === "POST" && ["/api/editor/login", "/api/editor/publish"].includes(pathname)) {
+      const supplied = Buffer.from(decodeURIComponent(request.headers["x-editor-password"] || ""));
+      if (!editorPassword.length || supplied.length !== editorPassword.length || !timingSafeEqual(supplied, editorPassword)) {
+        sendJson(response, 401, {error: "Неверный пароль редактора"});
+        return;
+      }
+      if (pathname === "/api/editor/login") {
+        sendJson(response, 200, {ok: true});
+        return;
+      }
+      if (request.headers["content-type"]?.split(";")[0] !== "application/json") {
+        sendJson(response, 415, {error: "Ожидаются данные JSON"});
+        return;
+      }
+      const chunks = [];
+      let length = 0;
+      for await (const chunk of request) {
+        length += chunk.length;
+        if (length > maxEditorRequest) {
+          sendJson(response, 413, {error: "Слишком большой запрос"});
+          return;
+        }
+        chunks.push(chunk);
+      }
+      const version = publishCampus(JSON.parse(Buffer.concat(chunks).toString("utf8")));
+      if (version === null) {
+        sendJson(response, 409, {error: "Каталог обновился. Загрузите свежие данные перед публикацией."});
+        return;
+      }
+      sendJson(response, 200, {version});
+      return;
+    }
     if (pathname.startsWith("/api/")) {
       const data = loadData();
       const campusId = requestUrl.searchParams.get("campus_id") || undefined;

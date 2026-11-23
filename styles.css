@@ -309,6 +309,7 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; strok
 .route-error > svg { flex: 0 0 auto; width: 21px; height: 21px; margin-top: 1px; }
 .route-error h3 { margin: 0 0 4px; font-size: 14px; }
 .route-error p { margin: 0; color: #9a5c55; font-size: 11px; }
+.data-retry { margin-top: 8px; }
 
 .steps-head { display: flex; align-items: center; justify-content: space-between; margin: 18px 0 10px; }
 .steps-head h3 { margin: 0; font-size: 13px; }
@@ -399,6 +400,62 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; strok
 
 .prototype-note { margin: 20px 5px 0; color: var(--muted); font-size: 10px; text-align: center; }
 .prototype-note span { margin-right: 6px; padding: 4px 7px; color: var(--forest-800); background: #deebdf; border-radius: 6px; font-weight: 800; text-transform: uppercase; }
+
+.campus-editor-link { display: inline-flex; margin-top: 16px; }
+.editor-shell { max-width: 1260px; padding-top: clamp(24px, 4vw, 50px); padding-bottom: 48px; }
+.editor-shell h1 { margin: 0 0 20px; font-size: clamp(26px, 4vw, 40px); line-height: 1.15; }
+.editor-shell h2 { margin: 0; font-size: 19px; }
+.editor-back { color: #fff; font-weight: 700; text-decoration: none; }
+.editor-back:hover, .campus-editor-link:hover { text-decoration: underline; }
+.editor-card { min-width: 0; padding: clamp(13px, 2vw, 22px); }
+.editor-card summary { cursor: pointer; font-weight: 800; }
+.editor-card details, .editor-card summary + * { margin-top: 14px; }
+.editor-login { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 12px; max-width: 510px; }
+.editor-content { display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; min-width: 0; margin: 0; padding: 0; border: 0; }
+.editor-campus-bar, .editor-floor-heading, .editor-publish, .editor-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.editor-campus-bar, .editor-floor-heading { justify-content: space-between; }
+.editor-campus-bar > label { flex: 1 1 250px; max-width: 480px; }
+.editor-campus-bar .button, .editor-login .button { min-height: 42px; width: auto; padding: 0 16px; }
+.editor-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(265px, 320px); gap: 14px; align-items: start; }
+.editor-sidebar, .editor-stack { display: grid; gap: 12px; }
+.editor-sidebar h2 { margin-bottom: 12px; }
+.editor-sidebar label + .editor-stack { margin-top: 12px; }
+.editor-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 145px), 1fr)); gap: 10px; }
+.editor-floor-heading + .editor-fields { margin-top: 12px; }
+.editor-shell label { display: grid; gap: 5px; min-width: 0; color: var(--forest-950); font-size: 13px; font-weight: 700; }
+.editor-shell label:is(.editor-check, .editor-flags label) { display: flex; align-items: center; flex-wrap: wrap; gap: 5px; }
+.editor-shell input:not([type="checkbox"]), .editor-shell select {
+  width: 100%; min-width: 0; min-height: 42px; padding: 8px;
+  border: 1px solid var(--line); border-radius: 9px;
+  background: var(--surface-2); color: var(--forest-950); font: inherit;
+}
+.editor-shell input[type="file"] { font-size: 11px; }
+.editor-shell input[type="checkbox"] { accent-color: var(--forest-900); }
+.editor-control {
+  min-height: 36px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 8px;
+  background: var(--surface-2); color: var(--forest-950); font-size: 12px; font-weight: 800;
+}
+.editor-control:hover, .editor-control[aria-pressed="true"] { border-color: var(--forest-900); }
+.editor-control--danger { color: #9b3528; }
+.editor-control:disabled { opacity: .55; cursor: default; }
+.editor-status { margin: 0 0 14px; color: var(--forest-900); font-size: 14px; font-weight: 700; }
+.editor-status:empty { display: none; }
+.editor-status--error { color: #9b3528; }
+.editor-hint { margin: 12px 0 8px; color: var(--muted); font-size: 13px; }
+.editor-stack .editor-hint { margin: 0; }
+.editor-map { display: block; width: 100%; height: auto; margin-bottom: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-2); }
+.editor-map--ready { cursor: crosshair; }
+.editor-map-empty { fill: var(--muted); font-size: 13px; text-anchor: middle; }
+.editor-edge-line { fill: none; stroke: #17816a; stroke-width: 2; stroke-dasharray: 4 2; pointer-events: none; }
+.editor-marker { cursor: pointer; }
+.editor-marker circle { fill: var(--forest-900); stroke: white; stroke-width: 1.6; }
+.editor-marker--selected circle { fill: #166d52; stroke: #d7ef80; stroke-width: 2.7; }
+.editor-marker text { fill: var(--forest-950); stroke: white; stroke-width: 2.8; paint-order: stroke; font-size: 10px; font-weight: 800; pointer-events: none; }
+.editor-marker:focus-visible circle { stroke: #8a2c19; }
+
+@media (max-width: 820px) {
+  .editor-layout { grid-template-columns: minmax(0, 1fr); }
+}
 
 .scanner-dialog {
   width: min(94vw, 470px);

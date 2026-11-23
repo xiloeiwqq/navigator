@@ -1,18 +1,22 @@
 """Локальный мультикампусный сервер навигатора без внешних API и трекинга."""
 
 import argparse
+import base64
 import copy
 import csv
 import datetime as dt
 import json
 import math
+import os
 import re
+import secrets
 import socket
 import ssl
 import threading
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 ROOT = Path(__file__).resolve().parent
@@ -78,6 +82,8 @@ def validate_campus(campus):
             raise ValueError("qr должен быть true или false")
         if "terminal" in node and not isinstance(node["terminal"], bool):
             raise ValueError("terminal должен быть true или false")
+        if "standalone" in node and not isinstance(node["standalone"], bool):
+            raise ValueError("standalone должен быть true или false")
         if "heading" in node and (
             not _finite_number(node["heading"]) or not 0 <= node["heading"] < 360
         ):
@@ -115,30 +121,35 @@ def validate_campus(campus):
         neighbors[edge["from"]].add(edge["to"])
         neighbors[edge["to"]].add(edge["from"])
 
-    # Изолированный участок делает физическую QR-метку бесполезной.
+    entrance = campus.get("entrance_node_id", "entrance")
+    if entrance not in nodes:
+        raise ValueError(f"Неизвестный главный вход кампуса {campus_id}")
+    standalone = {node_id for node_id, node in nodes.items() if node.get("standalone") and not neighbors[node_id]}
     reached = set()
-    pending = [next(iter(nodes))]
+    pending = [entrance]
     while pending:
         current = pending.pop()
         if current in reached:
             continue
         reached.add(current)
         pending.extend(neighbors[current] - reached)
-    if reached != set(nodes):
-        missing = ", ".join(sorted(set(nodes) - reached))
+    missing_nodes = set(nodes) - reached - standalone
+    if missing_nodes and not campus.get("editor_created"):
+        missing = ", ".join(sorted(missing_nodes))
         raise ValueError(f"Граф кампуса {campus_id} несвязный, недоступны узлы: {missing}")
-    if any(node.get("qr", False) and not neighbors[node["id"]] for node in nodes.values()):
+    if not campus.get("editor_created") and any(
+        node.get("qr") and not neighbors[node_id] and node_id not in standalone for node_id, node in nodes.items()
+    ):
         raise ValueError("QR-точка не может быть изолированным узлом")
 
-    entrance = campus.get("entrance_node_id", "entrance")
-    if entrance not in nodes:
-        raise ValueError(f"Неизвестный главный вход кампуса {campus_id}")
     dangling = [
         node["id"]
         for node in nodes.values()
         if not node["room"]
         and node["id"] != entrance
         and not node.get("terminal", False)
+        and not campus.get("editor_created")
+        and node["id"] not in standalone
         and len(neighbors[node["id"]]) < 2
     ]
     if dangling:
@@ -206,9 +217,10 @@ def materialize_campus(source, templates):
     return graph
 
 
-def load_data(folder: Path):
+def load_data(folder: Path, catalog=None):
     """Прочитать и полностью проверить каталог кампусов и оба CSV."""
-    catalog = json.loads((folder / "graph.json").read_text(encoding="utf-8"))
+    if catalog is None:
+        catalog = json.loads((folder / "graph.json").read_text(encoding="utf-8"))
     if not isinstance(catalog.get("demo"), bool) or not catalog.get("version"):
         raise ValueError("В каталоге нужны demo и version")
     campus_rows = catalog.get("campuses", [])
@@ -247,6 +259,9 @@ def load_data(folder: Path):
         elif campus_demo:
             timetable = campus_demo
             schedule = {"source": "demo", "filename": "timetable.demo.csv", "demo": True}
+        elif graph.get("editor_created"):
+            timetable = []
+            schedule = {"source": "none", "filename": None, "demo": False}
         else:
             raise ValueError(f"Расписание кампуса {graph['id']} пусто")
         validate_timetable(graph, timetable)
@@ -283,13 +298,109 @@ class DataStore:
         )
 
     def get(self):
-        signature = self.signature()
         with self._lock:
+            signature = self.signature()
             if self._data is None or signature != self._signature:
                 loaded = load_data(self.folder)
+                if signature != self.signature():
+                    raise OSError("Файлы данных обновляются. Повторите загрузку.")
                 self._data = loaded
-                self._signature = self.signature()
+                self._signature = signature
             return self._data
+
+    def publish(self, draft, version, creating):
+        with self._lock:
+            path = self.folder / "graph.json"
+            original = path.read_bytes()
+            catalog = json.loads(original)
+            if version != catalog["version"]:
+                return None
+            if not isinstance(draft, dict) or not isinstance(creating, bool):
+                raise ValueError("Некорректные данные кампуса")
+            index = next((i for i, campus in enumerate(catalog["campuses"]) if campus["id"] == draft.get("id")), None)
+            if creating != (index is None):
+                raise ValueError("ID нового кампуса уже занят или редактируемый кампус удалён")
+            existing = materialize_campus(catalog["campuses"][index], catalog.get("templates", {})) if index is not None else {}
+            campus = editor_campus(draft, existing)
+            if index is None:
+                catalog["campuses"].append(campus)
+            else:
+                catalog["campuses"][index] = campus
+            catalog["version"] = "editor-" + uuid.uuid4().hex
+            load_data(self.folder, catalog)
+            temp = path.with_name(f".graph-{uuid.uuid4().hex}.tmp")
+            try:
+                temp.write_text(json.dumps(catalog, ensure_ascii=False, indent=2, allow_nan=False) + "\n", encoding="utf-8")
+                if original != path.read_bytes():
+                    return None
+                temp.replace(path)
+            finally:
+                temp.unlink(missing_ok=True)
+            return catalog["version"]
+
+
+def editor_campus(draft, existing):
+    """Сохранить редактируемые поля и переиспользовать зоны исходного плана."""
+    campus = {**existing, **{key: draft.get(key) for key in (
+        "id", "city", "name", "short_name", "timezone", "coordinates",
+    )}}
+    campus["entrance_node_id"] = draft.get("entrance_node_id", existing.get("entrance_node_id", "entrance"))
+    if not existing:
+        campus["editor_created"] = True
+    if not isinstance(campus["coordinates"], dict):
+        raise ValueError("Укажите координаты кампуса")
+    for key, limit in (("floors", 24), ("nodes", 800), ("edges", 1600)):
+        rows = draft.get(key)
+        if not isinstance(rows, list) or len(rows) > limit or not all(isinstance(row, dict) for row in rows):
+            raise ValueError(f"Некорректный список {key}")
+        campus[key] = rows
+    for key in ("city", "name", "short_name", "timezone"):
+        if not isinstance(campus[key], str) or len(campus[key]) > 120:
+            raise ValueError(f"Некорректное поле {key}")
+    original_floors = {floor["id"]: floor for floor in existing.get("floors", [])}
+    floors = {}
+    for index, floor in enumerate(campus["floors"]):
+        floor_id = floor.get("id")
+        if not isinstance(floor_id, str) or not SAFE_ID_RE.fullmatch(floor_id) or not valid_editor_label(floor.get("label")):
+            raise ValueError("У каждого этажа должны быть ID и название")
+        image = floor.get("image")
+        floor = {**original_floors.get(floor_id, {"zones": []}), "id": floor_id, "label": floor["label"]}
+        if image is not None:
+            if not isinstance(image, str) or len(image) > 1_600_000 or not image.startswith("data:image/jpeg;base64,"):
+                raise ValueError("Некорректная или слишком большая схема этажа")
+            binary = base64.b64decode(image.split(",", 1)[1], validate=True)
+            if not binary.startswith(b"\xff\xd8\xff") or not binary.endswith(b"\xff\xd9"):
+                raise ValueError("Схема этажа должна быть изображением JPEG")
+            floor["image"] = image
+        else:
+            floor.pop("image", None)
+        if not floor.get("zones") and not floor.get("image"):
+            raise ValueError("Загрузите схему для каждого этажа")
+        floors[floor_id] = floor
+        campus["floors"][index] = floor
+    for node in campus["nodes"]:
+        if not valid_editor_label(node.get("label")):
+            raise ValueError("У каждой точки должно быть название")
+    for edge in campus["edges"]:
+        if not valid_editor_label(edge.get("name")) or edge.get("kind") not in ("corridor", "stairs", "lift"):
+            raise ValueError("У каждого прохода должны быть название и тип")
+        for key in ("path", "instructions"):
+            if key in edge and not isinstance(edge[key], dict):
+                raise ValueError("Некорректная геометрия или инструкция прохода")
+        for floor, points in edge.get("path", {}).items():
+            if floor not in floors or not isinstance(points, list) or not 2 <= len(points) <= 200 or any(
+                not isinstance(point, list) or len(point) != 2 or
+                any(not _finite_number(value) or not 0 <= value <= bound for value, bound in zip(point, (440, 290)))
+                for point in points
+            ):
+                raise ValueError("Некорректная линия прохода")
+        if any(not valid_editor_label(value, 500) for value in edge.get("instructions", {}).values()):
+            raise ValueError("Некорректная инструкция прохода")
+    return campus
+
+
+def valid_editor_label(value, limit=160):
+    return isinstance(value, str) and bool(value.strip()) and len(value) <= limit
 
 
 def selected_campus(data, campus_id=None):
@@ -385,12 +496,16 @@ def data_version(data_dir: Path):
 def make_server(host="0.0.0.0", port=8080, data_dir=None):
     store = DataStore(data_dir or ROOT / "data")
     store.get()
+    editor_password = os.environ.get("NAVIGATOR_EDITOR_PASSWORD", "dattebayo").encode("utf-8")
     assets = {
         "/": ("index.html", "text/html; charset=utf-8"),
         "/index.html": ("index.html", "text/html; charset=utf-8"),
         "/styles.css": ("styles.css", "text/css; charset=utf-8"),
         "/route.js": ("route.js", "text/javascript; charset=utf-8"),
         "/app.js": ("app.js", "text/javascript; charset=utf-8"),
+        "/editor": ("editor.html", "text/html; charset=utf-8"),
+        "/editor.js": ("editor.js", "text/javascript; charset=utf-8"),
+        "/map-plan.js": ("map-plan.js", "text/javascript; charset=utf-8"),
         "/vendor/jsQR.js": ("vendor/jsQR.js", "text/javascript; charset=utf-8"),
     }
     if (ROOT / "certs" / "ca.crt").exists():
@@ -411,6 +526,39 @@ def make_server(host="0.0.0.0", port=8080, data_dir=None):
         def send_json(self, payload, status=200):
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_body(body, "application/json; charset=utf-8", status)
+
+        def do_POST(self):
+            path = urlsplit(self.path).path
+            if path not in ("/api/editor/login", "/api/editor/publish"):
+                self.send_error(404)
+                return
+            supplied = unquote(self.headers.get("X-Editor-Password", "")).encode("utf-8")
+            if not editor_password or not secrets.compare_digest(supplied, editor_password):
+                self.send_json({"error": "Неверный пароль редактора"}, 401)
+                return
+            if path == "/api/editor/login":
+                self.send_json({"ok": True})
+                return
+            if self.headers.get_content_type() != "application/json":
+                self.send_json({"error": "Ожидаются данные JSON"}, 415)
+                return
+            try:
+                length = int(self.headers.get("Content-Length", "0"))
+                if not 0 < length <= 16 * 1024 * 1024:
+                    self.send_json({"error": "Слишком большой или пустой запрос"}, 413)
+                    return
+                payload = json.loads(self.rfile.read(length))
+                if not isinstance(payload, dict):
+                    raise ValueError("Некорректные данные кампуса")
+                version = store.publish(payload.get("campus"), payload.get("version"), payload.get("creating"))
+                if version is None:
+                    self.send_json({"error": "Каталог обновился. Загрузите свежие данные перед публикацией."}, 409)
+                    return
+                self.send_json({"version": version})
+            except (ValueError, TypeError, KeyError, OverflowError, RecursionError) as error:
+                self.send_json({"error": str(error)}, 400)
+            except OSError:
+                self.send_json({"error": "Сервер не смог сохранить карту кампуса"}, 503)
 
         def do_GET(self):
             parsed = urlsplit(self.path)
