@@ -1,6 +1,5 @@
 __pycache__/
 .venv/
-qr/
 certs/
 tunnel-url.txt
 *.pyc
