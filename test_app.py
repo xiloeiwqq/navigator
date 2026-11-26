@@ -63,7 +63,7 @@ class AppTests(unittest.TestCase):
                          {"ЦУМ": False, "ДДЮТ": True, "ЧЭМК": False})
         self.assertEqual(len(data["graph"]["nodes"]), 26)
         self.assertEqual(len(data["timetable"]), 15)
-        self.assertEqual(sum(len(item["timetable"]) for item in data["campus_data"].values()), 75)
+        self.assertEqual(sum(len(item["timetable"]) for item in data["campus_data"].values()), 70)
         self.assertEqual(data["schedule"]["source"], "demo")
         self.assertTrue(data["schedule"]["demo"])
 

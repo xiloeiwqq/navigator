@@ -1174,6 +1174,7 @@ svg { display: block; fill: none; stroke: currentColor; stroke-width: 1.8; strok
 .navigator-page .floor-map--detailed .active-path-shadow { stroke-width: 7; }
 .floor-shell.floor-shell--compact { rx: 7px; }
 .map-room.map-room--compact { rx: 3.5px; }
+polygon.floor-shell, polygon.map-room { stroke-linejoin: round; }
 .map-room--uncertain { stroke-dasharray: 2 1.7; }
 .map-room-label.map-room-label--compact { font-size: var(--map-label-size); font-weight: 500; }
 .stairs-lines.stairs-lines--compact { stroke: var(--navigator-muted); stroke-width: .65; }

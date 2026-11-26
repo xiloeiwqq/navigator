@@ -42,6 +42,29 @@ check("stairs to A-201 is 25m", () => {
   assert.equal(result.length_m, 25);
   assert(result.edges.includes("stairs-between-floors"));
 });
+check("ЦУМ: все зоны доступны по лестнице в обе стороны", () => {
+  const tsum = catalog.campuses.find(campus => campus.id === "cheboksary-campus");
+  assert.equal(tsum.entrance_node_id, "stairs-4");
+  assert.equal(tsum.start_at_entrance, true);
+  const zones = tsum.floors.flatMap(floor => floor.zones);
+  assert.equal(zones.length, 15);
+  assert.deepEqual(
+    tsum.nodes.filter(node => node.qr).map(node => node.id).sort(),
+    zones.map(zone => zone.node_id).sort()
+  );
+  for (const [floor, otherFloor] of [["3", "4"], ["4", "3"]]) {
+    const start = "stairs-" + floor;
+    const targets = tsum.nodes.filter(node => node.floor === otherFloor && node.room);
+    assert(targets.length > 1);
+    for (const target of targets) {
+      const result = route(tsum, start, target.id);
+      assert.equal(result.edges[0], "stairs-3-4");
+      assert.equal(routePosition(tsum, result, 0).floor, floor);
+      assert.equal(routePosition(tsum, result, result.length_m).floor, otherFloor);
+      assert.equal(route(tsum, start, target.id, [], true), null);
+    }
+  }
+});
 check("closed stairs choose 29m lift route", () => {
   const result = route(graph, "entrance", "lab2", ["stairs-between-floors"]);
   assert.equal(result.length_m, 29);
@@ -129,7 +152,7 @@ check("every demo group has five different 90-minute lessons through 17:00", () 
 check("every city demo group uses the two-floor template", () => {
   const cityRows = demoRows.filter(row => !["moscow-main", "kazan-tech"].includes(row.campus_id));
   const groups = new Set(cityRows.map(row => row.group_id));
-  assert.equal(groups.size, 10);
+  assert.equal(groups.size, 9);
   for (const groupId of groups) {
     const lessons = cityRows.filter(row => row.group_id === groupId);
     assert.equal(lessons.length, 5, `${groupId}: ожидается 5 занятий`);

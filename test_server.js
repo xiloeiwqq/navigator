@@ -122,6 +122,17 @@ async function main() {
       assert.equal(chemk.graph.floors[0].zones.length, 18);
     });
 
+    const tsumResponse = await get("/api/data?campus_id=cheboksary-campus");
+    check("ЦУМ отдаёт два векторных плана без демонстрационного расписания", () => {
+      const {graph, schedule, timetable} = JSON.parse(tsumResponse.body);
+      assert.equal(tsumResponse.response.status, 200);
+      assert.equal(graph.demo, false);
+      assert.equal(schedule.source, "none");
+      assert.deepEqual(timetable, []);
+      assert.deepEqual(graph.floors.map(floor => floor.id), ["3", "4"]);
+      assert(graph.floors.every(floor => floor.outline.points.length > 3 && !floor.image));
+    });
+
     const templateResponse = await get("/api/data?campus_id=yekaterinburg-campus");
     check("templated campus is expanded in API", () => {
       const data = JSON.parse(templateResponse.body);

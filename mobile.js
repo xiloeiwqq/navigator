@@ -352,7 +352,7 @@ function drawMobilePickPoints(svg, floor) {
       node.y >= item.y && node.y <= item.y + item.height);
     const attributes = {class: "mobile-map-point", role: "button", tabindex: "0", "aria-label": node.label};
     const area = zone
-      ? svgElement("rect", {...attributes, x: zone.x, y: zone.y, width: zone.width, height: zone.height, rx: zone.node_id ? 2 : 8})
+      ? planShape(zone, {...attributes, rx: zone.node_id ? 2 : 8})
       : svgElement("circle", {...attributes, cx: node.x, cy: node.y, r: 10});
     area.append(svgElement("title", {}, node.label));
     area.addEventListener("click", () => mobileSelectPoint(field, node.id));

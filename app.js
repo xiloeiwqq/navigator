@@ -508,9 +508,11 @@ function populateControls({respectQuery = true, selection = null} = {}) {
   group.disabled = !timetable.length;
 
   const query = new URLSearchParams(location.search);
-  const queryStart = selection?.start ?? (respectQuery ? query.get("start_node") || query.get("node_id") : null);
-  const knownStart = startNodes.some(node => node.id === queryStart);
-  start.value = knownStart ? queryStart : "";
+  const linkedStart = respectQuery && (query.has("start_node") || query.has("node_id"));
+  const queryStart = selection?.start ?? (linkedStart ? query.get("start_node") || query.get("node_id") || "" : null);
+  const entrance = graph.start_at_entrance === true ? nodeById(graph.entrance_node_id || "entrance") : null;
+  const startNode = startNodes.find(node => node.id === (queryStart ?? entrance?.id));
+  start.value = startNode?.id ?? "";
 
   const queryTarget = selection?.target ?? (respectQuery ? query.get("target") : null);
   const knownTarget = destinations.some(node => node.id === queryTarget);
@@ -525,14 +527,13 @@ function populateControls({respectQuery = true, selection = null} = {}) {
   mobileGroup.disabled = group.disabled;
 
   if (respectQuery) state.accessible = ["1", "true"].includes((query.get("accessible") || "").toLowerCase());
-  state.locationSource = knownStart ? selection?.source || "qr" : "manual";
-  const startNode = nodeById(start.value);
-  state.activeFloor = startNode?.floor ?? graph.floors[0].id;
+  state.locationSource = startNode && queryStart ? selection?.source || "qr" : "manual";
+  state.activeFloor = startNode?.floor ?? entrance?.floor ?? graph.floors[0].id;
   state.position = startNode ? {x: startNode.x, y: startNode.y, floor: startNode.floor, nodeId: startNode.id} : null;
   state.navigation = {routeKey: "", distanceM: 0, arrived: false};
   updateCurrentLocation();
 
-  if (queryStart && !knownStart) {
+  if (queryStart && !startNode) {
     showToast(selection ? "Прежняя стартовая точка удалена. Выберите новую." : "Неизвестная QR-точка. Выберите старт вручную.", "error");
   }
 }
@@ -1963,7 +1964,7 @@ async function boot() {
     if (linkedCampus && !linkedCampus.temporarily_closed) {
       mobile.screen = query.has("target") ? "map" : "welcome";
       await switchCampus(linkedCampus.id, {source: "link", respectQuery: true});
-      if ($("start").value && !query.has("target")) mobile.screen = "located";
+      if ($("start").value && !query.has("target")) mobile.screen = state.locationSource === "qr" ? "located" : "map";
       if (!$("start").value && (query.has("start_node") || query.has("node_id"))) showMobileError("qr");
     } else if (storedCampus && !storedCampus.temporarily_closed) {
       await switchCampus(storedCampus.id, {source: "saved", respectQuery: false});

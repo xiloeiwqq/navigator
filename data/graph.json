@@ -1,5 +1,5 @@
 {
-  "version": "singularity-2026-11-24-r7",
+  "version": "singularity-2026-11-27-r12",
   "demo": true,
   "default_campus_id": "moscow-main",
   "templates": {
@@ -408,7 +408,95 @@
     "short_name": "ЦУМ",
     "timezone": "Europe/Moscow",
     "coordinates": {"latitude": 56.1439, "longitude": 47.2489},
-    "template": "city-campus"
+    "demo": false,
+    "schedule_optional": true,
+    "entrance_node_id": "stairs-4",
+    "start_at_entrance": true,
+    "route_note": "Переход между 3-м и 4-м этажами проходит по лестнице. Входы в зоны и расстояния указаны ориентировочно.",
+    "floors": [
+      {
+        "id": "3",
+        "label": "3 этаж",
+        "outline": {"x": 83.0, "y": 33.65, "width": 271.7, "height": 225.55, "points": [[83.0, 259.2], [83.0, 33.65], [266.3, 33.65], [266.3, 161.05], [346.25, 161.05], [354.7, 166.25], [354.7, 212.4], [266.3, 212.4], [266.3, 207.85], [224.05, 207.85], [224.05, 259.2]]},
+        "zones": [
+          {"label": "Чилл-зона", "type": "room", "x": 86.25, "y": 208.5, "width": 74.75, "height": 46.15, "points": [[84.95, 255.95], [84.95, 208.5], [142.15, 208.5], [142.15, 101.9], [164.25, 101.9], [164.25, 163.0], [222.1, 163.0], [222.1, 206.55], [164.25, 206.55], [164.25, 255.95]], "node_id": "chill-3", "map_label": "Чилл-\nзона"},
+          {"label": "Амфитеатр", "type": "room", "x": 84.95, "y": 102.55, "width": 56.55, "height": 103.35, "node_id": "amphitheatre"},
+          {"label": "Беседка", "type": "room", "x": 164.9, "y": 207.2, "width": 57.2, "height": 48.75, "node_id": "gazebo"},
+          {"label": "Рабочая зона", "type": "room", "x": 168.8, "y": 37.55, "width": 94.25, "height": 116.35, "points": [[84.95, 100.6], [84.95, 36.25], [263.7, 36.25], [263.7, 161.7], [165.55, 161.7], [165.55, 100.6]], "node_id": "work-3", "map_label": "Рабочая\nзона"},
+          {"label": "Лестница", "type": "stairs", "x": 268.9, "y": 163.65, "width": 83.2, "height": 48.1, "node_id": "stairs-3"}
+        ]
+      },
+      {
+        "id": "4",
+        "label": "4 этаж",
+        "outline": {"x": 13.0, "y": 54.0, "width": 414.35, "height": 183.18, "points": [[13.0, 202.87], [13.0, 166.49], [63.05, 166.49], [63.05, 132.69], [13.0, 132.69], [13.0, 104.83], [63.05, 104.83], [63.05, 76.7], [13.0, 76.7], [13.0, 54.0], [179.41, 54.0], [179.41, 187.13], [229.2, 187.13], [229.2, 54.0], [269.45, 54.0], [269.45, 158.49], [347, 158.49], [347, 130.11], [419.35, 130.11], [427.35, 132.69], [427.35, 161.59], [373.17, 161.59], [373.17, 174.74], [264.29, 174.74], [264.29, 200.54], [226.88, 200.54], [226.88, 237.18], [205.47, 237.18], [205.47, 200.54], [76.73, 200.54], [76.73, 202.87]]},
+        "zones": [
+          {"label": "Кухня", "type": "service", "x": 14.55, "y": 167.0, "width": 49.28, "height": 34.58, "node_id": "kitchen"},
+          {"label": "СДЭК", "type": "service", "x": 14.55, "y": 105.08, "width": 49.28, "height": 27.61, "node_id": "cdek"},
+          {"label": "Секретик в верхнем коридоре", "type": "room", "x": 14.55, "y": 55.81, "width": 49.28, "height": 20.38, "node_id": "secret-north", "map_label": "Секретик"},
+          {"label": "Раздевалка", "type": "service", "x": 97.88, "y": 161.84, "width": 46.44, "height": 25.55, "node_id": "locker"},
+          {"label": "Секретик у раздевалки", "type": "room", "x": 144.32, "y": 161.84, "width": 34.06, "height": 25.55, "node_id": "secret-locker", "map_label": "Секретик"},
+          {"label": "Рабочая зона", "type": "room", "x": 100.46, "y": 76.45, "width": 68.63, "height": 85.65, "points": [[76.98, 187.39], [76.98, 76.7], [111.3, 76.7], [111.3, 56.06], [178.38, 56.06], [178.38, 161.59], [97.62, 161.59], [97.62, 187.39]], "node_id": "work-4"},
+          {"label": "КУ", "type": "room", "x": 76.73, "y": 55.81, "width": 34.83, "height": 20.38, "node_id": "ku"},
+          {"label": "Колибри", "type": "room", "x": 229.72, "y": 55.81, "width": 37.93, "height": 102.68, "points": [[229.72, 187.13], [229.72, 55.81], [267.9, 55.81], [267.9, 159.01], [248.81, 159.01], [248.81, 187.13]], "node_id": "colibri"},
+          {"label": "Николай", "type": "room", "x": 207.02, "y": 200.8, "width": 18.57, "height": 35.86, "node_id": "nikolai"},
+          {"label": "Вход у лестницы", "type": "stairs", "x": 373.94, "y": 132.43, "width": 51.09, "height": 27.61, "node_id": "stairs-4", "map_label": "Вход"}
+        ]
+      }
+    ],
+    "nodes": [
+      {"id": "stairs-3", "label": "Лестница", "floor": "3", "x": 320.9, "y": 183.15, "room": true, "qr": true},
+      {"id": "landing-3", "label": "Проход у лестницы", "floor": "3", "x": 226.65, "y": 184.45, "room": false, "waypoint": true},
+      {"id": "junction-3", "label": "Проход у беседки и рабочей зоны", "floor": "3", "x": 193.5, "y": 184.45, "room": false, "waypoint": true},
+      {"id": "hall-3", "label": "Проход у амфитеатра", "floor": "3", "x": 152.55, "y": 184.45, "room": false, "waypoint": true},
+      {"id": "gazebo", "label": "Беседка", "floor": "3", "x": 193.5, "y": 215.65, "room": true, "qr": true},
+      {"id": "work-3", "label": "Рабочая зона", "floor": "3", "x": 193.5, "y": 147.4, "room": true, "qr": true},
+      {"id": "chill-3", "label": "Чилл-зона", "floor": "3", "x": 148.65, "y": 220.85, "room": true, "qr": true},
+      {"id": "amphitheatre", "label": "Амфитеатр", "floor": "3", "x": 134.35, "y": 166.9, "room": true, "qr": true},
+      {"id": "stairs-4", "label": "Вход у лестницы", "floor": "4", "x": 401.29, "y": 145.33, "room": true, "qr": true},
+      {"id": "colibri-hall", "label": "Поворот у Колибри", "floor": "4", "x": 260.16, "y": 166.23, "room": false, "waypoint": true},
+      {"id": "nikolai-hall", "label": "Проход у зоны «Николай»", "floor": "4", "x": 216.31, "y": 191.51, "room": false, "waypoint": true},
+      {"id": "secret-hall", "label": "Проход у секретика", "floor": "4", "x": 158.0, "y": 191.51, "room": false, "waypoint": true},
+      {"id": "locker-hall", "label": "Проход у раздевалки", "floor": "4", "x": 119.81, "y": 191.0, "room": false, "waypoint": true},
+      {"id": "north-turn", "label": "Поворот у кухни", "floor": "4", "x": 70.53, "y": 191.0, "room": false, "waypoint": true},
+      {"id": "north-hall", "label": "Проход между СДЭКом и рабочей зоной", "floor": "4", "x": 70.53, "y": 118.24, "room": false, "waypoint": true},
+      {"id": "work-entry", "label": "Вход в рабочую зону", "floor": "4", "x": 81.37, "y": 118.24, "room": false, "waypoint": true},
+      {"id": "colibri", "label": "Колибри", "floor": "4", "x": 260.16, "y": 151.52, "room": true, "qr": true},
+      {"id": "secret-locker", "label": "Секретик у раздевалки", "floor": "4", "x": 158.0, "y": 182.74, "room": true, "qr": true},
+      {"id": "locker", "label": "Раздевалка", "floor": "4", "x": 119.81, "y": 182.74, "room": true, "qr": true},
+      {"id": "kitchen", "label": "Кухня", "floor": "4", "x": 58.92, "y": 184.29, "room": true, "qr": true},
+      {"id": "cdek", "label": "СДЭК", "floor": "4", "x": 58.92, "y": 118.24, "room": true, "qr": true},
+      {"id": "work-4", "label": "Рабочая зона", "floor": "4", "x": 89.11, "y": 118.24, "room": true, "qr": true},
+      {"id": "ku", "label": "КУ", "floor": "4", "x": 88.59, "y": 67.93, "room": true, "qr": true},
+      {"id": "secret-north", "label": "Секретик в верхнем коридоре", "floor": "4", "x": 58.67, "y": 66.38, "room": true, "qr": true},
+      {"id": "nikolai", "label": "Николай", "floor": "4", "x": 216.31, "y": 198.2, "room": true, "qr": true}
+    ],
+    "edges": [
+      {"id": "stairs-3-landing-3", "name": "Лестница — Проход у лестницы", "from": "stairs-3", "to": "landing-3", "length_m": 9, "accessible": false, "kind": "corridor", "path": {"3": [[320.9, 183.15], [293.6, 182.5], [263.05, 184.45], [226.65, 184.45]]}, "instructions": {"stairs-3>landing-3": "От лестницы идите прямо к этажу", "landing-3>stairs-3": "Идите прямо к лестнице"}},
+      {"id": "landing-3-junction-3", "name": "Проход у лестницы — Проход у беседки и рабочей зоны", "from": "landing-3", "to": "junction-3", "length_m": 3, "accessible": false, "kind": "corridor"},
+      {"id": "junction-3-hall-3", "name": "Проход у беседки и рабочей зоны — Проход у амфитеатра", "from": "junction-3", "to": "hall-3", "length_m": 4, "accessible": false, "kind": "corridor"},
+      {"id": "junction-3-gazebo", "name": "Проход у беседки и рабочей зоны — Беседка", "from": "junction-3", "to": "gazebo", "length_m": 3, "accessible": false, "kind": "corridor"},
+      {"id": "junction-3-work-3", "name": "Проход у беседки и рабочей зоны — Рабочая зона", "from": "junction-3", "to": "work-3", "length_m": 4, "accessible": false, "kind": "corridor"},
+      {"id": "hall-3-chill-3", "name": "Проход у амфитеатра — Чилл-зона", "from": "hall-3", "to": "chill-3", "length_m": 4, "accessible": false, "kind": "corridor", "path": {"3": [[152.55, 184.45], [152.55, 220.85], [148.65, 220.85]]}},
+      {"id": "hall-3-amphitheatre", "name": "Проход у амфитеатра — Амфитеатр", "from": "hall-3", "to": "amphitheatre", "length_m": 3, "accessible": false, "kind": "corridor", "path": {"3": [[152.55, 184.45], [152.55, 166.9], [134.35, 166.9]]}},
+      {"id": "stairs-4-colibri-hall", "name": "Лестница — Поворот у Колибри", "from": "stairs-4", "to": "colibri-hall", "length_m": 24, "accessible": false, "kind": "corridor", "path": {"4": [[401.29, 145.33], [360.09, 145.33], [360.09, 166.23], [260.16, 166.23]]}, "instructions": {"stairs-4>colibri-hall": "От лестницы идите по коридору до поворота у Колибри", "colibri-hall>stairs-4": "От поворота у Колибри идите по коридору к лестнице"}},
+      {"id": "colibri-hall-nikolai-hall", "name": "Поворот у Колибри — Проход у зоны «Николай»", "from": "colibri-hall", "to": "nikolai-hall", "length_m": 10, "accessible": false, "kind": "corridor", "path": {"4": [[260.16, 166.23], [260.16, 191.51], [216.31, 191.51]]}},
+      {"id": "nikolai-hall-secret-hall", "name": "Проход от зоны «Николай» к секретику", "from": "nikolai-hall", "to": "secret-hall", "length_m": 9, "accessible": false, "kind": "corridor"},
+      {"id": "nikolai-hall-nikolai", "name": "Проход у зоны «Николай» — Николай", "from": "nikolai-hall", "to": "nikolai", "length_m": 1, "accessible": false, "kind": "corridor"},
+      {"id": "secret-hall-locker-hall", "name": "Проход у секретика — Проход у раздевалки", "from": "secret-hall", "to": "locker-hall", "length_m": 6, "accessible": false, "kind": "corridor", "path": {"4": [[158.0, 191.51], [141.74, 191.77], [119.81, 191.0]]}},
+      {"id": "locker-hall-north-turn", "name": "Проход у раздевалки — Поворот у кухни", "from": "locker-hall", "to": "north-turn", "length_m": 7, "accessible": false, "kind": "corridor", "path": {"4": [[119.81, 191.0], [95.82, 191.0], [79.56, 192.03], [72.08, 192.55], [70.53, 191.0]]}},
+      {"id": "north-turn-north-hall", "name": "Поворот у кухни — Проход между СДЭКом и рабочей зоной", "from": "north-turn", "to": "north-hall", "length_m": 11, "accessible": false, "kind": "corridor"},
+      {"id": "north-hall-work-entry", "name": "Проход между СДЭКом и рабочей зоной — Вход в рабочую зону", "from": "north-hall", "to": "work-entry", "length_m": 2, "accessible": false, "kind": "corridor"},
+      {"id": "colibri-hall-colibri", "name": "Поворот у Колибри — Колибри", "from": "colibri-hall", "to": "colibri", "length_m": 2, "accessible": false, "kind": "corridor"},
+      {"id": "secret-hall-secret-locker", "name": "Проход у секретика — Секретик у раздевалки", "from": "secret-hall", "to": "secret-locker", "length_m": 1, "accessible": false, "kind": "corridor"},
+      {"id": "locker-hall-locker", "name": "Проход у раздевалки — Раздевалка", "from": "locker-hall", "to": "locker", "length_m": 1, "accessible": false, "kind": "corridor"},
+      {"id": "north-turn-kitchen", "name": "Поворот у кухни — Кухня", "from": "north-turn", "to": "kitchen", "length_m": 3, "accessible": false, "kind": "corridor", "path": {"4": [[70.53, 191.0], [70.53, 184.29], [58.92, 184.29]]}},
+      {"id": "north-hall-cdek", "name": "Проход между СДЭКом и рабочей зоной — СДЭК", "from": "north-hall", "to": "cdek", "length_m": 2, "accessible": false, "kind": "corridor"},
+      {"id": "work-entry-work-4", "name": "Вход в рабочую зону — Рабочая зона", "from": "work-entry", "to": "work-4", "length_m": 1, "accessible": false, "kind": "corridor"},
+      {"id": "work-entry-ku", "name": "Вход в рабочую зону — КУ", "from": "work-entry", "to": "ku", "length_m": 9, "accessible": false, "kind": "corridor", "path": {"4": [[81.37, 118.24], [81.37, 81.61], [88.59, 81.61], [88.59, 67.93]]}},
+      {"id": "north-hall-secret-north", "name": "Проход между СДЭКом и рабочей зоной — Секретик в верхнем коридоре", "from": "north-hall", "to": "secret-north", "length_m": 10, "accessible": false, "kind": "corridor", "path": {"4": [[70.53, 118.24], [70.53, 66.38], [58.67, 66.38]]}},
+      {"id": "stairs-3-4", "name": "Лестница между 3-м и 4-м этажами", "from": "stairs-3", "to": "stairs-4", "length_m": 8, "accessible": false, "kind": "stairs", "instructions": {"stairs-3>stairs-4": "Поднимитесь по лестнице на 4-й этаж", "stairs-4>stairs-3": "Спуститесь по лестнице на 3-й этаж"}}
+    ]
   },
   {
     "id": "cheboksary-ddyut",

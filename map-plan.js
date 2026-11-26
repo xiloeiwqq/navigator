@@ -33,6 +33,15 @@ function drawZoneLabel(svg, zone, compact) {
   svg.append(text);
 }
 
+function planShape(area, attributes) {
+  if (area.points) {
+    const points = area.points.map(point => point.join(",")).join(" ");
+    return svgElement("polygon", {points, ...attributes});
+  }
+  const {x, y, width, height} = area;
+  return svgElement("rect", {x, y, width, height, ...attributes});
+}
+
 function drawPlan(svg, floor) {
   if (floor.image) {
     svg.append(svgElement("image", {href: floor.image, x: 0, y: 0, width: 440, height: 290}));
@@ -40,7 +49,7 @@ function drawPlan(svg, floor) {
   }
   const compact = Boolean(floor.outline);
   const outline = floor.outline || {x: 18, y: 28, width: 404, height: 234};
-  svg.append(svgElement("rect", {...outline, rx: 8, class: compact ? "floor-shell floor-shell--compact" : "floor-shell"}));
+  svg.append(planShape(outline, {rx: 8, class: compact ? "floor-shell floor-shell--compact" : "floor-shell"}));
   for (const zone of floor.zones || []) {
     const corridor = zone.type === "corridor";
     const service = ["service", "stairs", "lift"].includes(zone.type);
@@ -49,11 +58,11 @@ function drawPlan(svg, floor) {
     if (service) classes.push("map-room--service");
     if (compact) classes.push("map-room--compact");
     if (zone.uncertain) classes.push("map-room--uncertain");
-    const room = svgElement("rect", {
+    const area = zone.points ? zone : {
       x: zone.x + inset, y: zone.y + inset,
-      width: zone.width - inset * 2, height: zone.height - inset * 2,
-      rx: corridor ? 0 : 3, class: classes.join(" ")
-    });
+      width: zone.width - inset * 2, height: zone.height - inset * 2
+    };
+    const room = planShape(area, {rx: corridor ? 0 : 3, class: classes.join(" ")});
     if (compact && zone.label) room.append(svgElement("title", {}, zone.label));
     svg.append(room);
     if (!compact) drawZoneLabel(svg, zone, false);
