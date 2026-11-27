@@ -3,7 +3,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from community_publish import FORMAT, add_campus, validate_submission, write_json
+from community_publish import ATTACHMENT_URL, FORMAT, add_campus, validate_submission, write_json
 
 
 def example(campus_id="perm-campus"):
@@ -31,6 +31,11 @@ def example(campus_id="perm-campus"):
 
 
 class CommunitySubmissionTests(unittest.TestCase):
+    def test_accepts_github_attachment_links_only(self):
+        url = "https://github.com/user-attachments/files/42/navigator-campus-perm.1.json"
+        markdown = f"[План]({url}) [Сторонний файл](https://example.org/plan.json)"
+        self.assertEqual(ATTACHMENT_URL.findall(markdown), [url])
+
     def test_new_city_and_duplicate_or_retried_submission(self):
         with TemporaryDirectory() as directory:
             root = Path(directory)

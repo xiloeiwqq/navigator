@@ -17,8 +17,8 @@ FORMAT = "navigator-campus-v1"
 MAX_BYTES = 16 * 1024 * 1024
 ATTACHMENT_URL = re.compile(
     r"https://github\.com/user-attachments/(?:"
-    r"files/[0-9]+/navigator-campus-[A-Za-z0-9_-]+\.json"
-    r"|assets/[a-f0-9-]{36})(?![A-Za-z0-9._/-])"
+    r"files/[0-9]+/[A-Za-z0-9._%()+-]+\.json"
+    r"|assets/[a-f0-9-]{36})(?![A-Za-z0-9._%/-])"
 )
 NODE_FIELDS = {
     "id", "label", "floor", "x", "y", "room", "qr", "heading", "terminal", "standalone",
