@@ -1,0 +1,71 @@
+name: Publish community campus
+
+on:
+  issues:
+    types: [opened, edited]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 -m unittest test_community_publish
+
+  publish:
+    if: github.event_name == 'issues' && startsWith(github.event.issue.title, '[Кампус] ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    permissions:
+      contents: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/navigator-pages
+          path: pages
+          sparse-checkout: snapshot/campuses.json
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/navigator-data
+          path: feed
+      - name: Validate and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          result="$RUNNER_TEMP/campus-result.json"
+          branch=codex/navigator-data
+          git -C feed config user.name 'github-actions[bot]'
+          git -C feed config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          for attempt in 1 2 3 4 5 6; do
+            git -C feed fetch origin "refs/heads/$branch"
+            git -C feed checkout --detach FETCH_HEAD
+            python3 community_publish.py "$GITHUB_EVENT_PATH" pages/snapshot/campuses.json feed "$result"
+            state=$(jq -r .state "$result")
+            if [[ "$state" != published ]]; then break; fi
+            git -C feed add -- '*.json'
+            git -C feed commit -m 'Publish a community campus'
+            if git -C feed push origin "HEAD:refs/heads/$branch"; then break; fi
+            if [[ "$attempt" == 6 ]]; then exit 1; fi
+            sleep "$attempt"
+          done
+          if [[ "$state" == unchanged ]]; then exit 0; fi
+          issue_number=$(jq -r '.issue.number' "$GITHUB_EVENT_PATH")
+          detail=$(jq -r .detail "$result")
+          if [[ "$state" == published ]]; then
+            printf 'Кампус опубликован. [Открыть в навигаторе](https://xiloeiwqq.github.io/navigator/?campus_id=%s)\n' "$detail" > "$RUNNER_TEMP/campus-reply.txt"
+          else
+            printf 'Кампус пока не опубликован. Проверьте файл и обновите заявку.\n\n' > "$RUNNER_TEMP/campus-reply.txt"
+            jq -r '.detail | split("\n")[0] | .[0:250] | "> " + gsub("[@<>]"; "")' "$result" >> "$RUNNER_TEMP/campus-reply.txt"
+          fi
+          gh issue comment "$issue_number" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/campus-reply.txt"
