@@ -649,7 +649,7 @@ async function fetchCampusData(campusId) {
 function applyCampusData(payload, {respectQuery = false, selection = null} = {}) {
   const localClosures = selection ? [...state.closed].filter(id => !edgeById(id)?.closed) : [];
   state.data = payload;
-  $("campusEditorLink").href = `https://navigator-singularity.bentshortbread2.chatgpt.site/editor?${new URLSearchParams({campus_id: payload.campus_id})}`;
+  $("campusEditorLink").href = "./editor.html";
   if (state.catalog && JSON.stringify(state.catalog.campuses) !== JSON.stringify(payload.campuses)) {
     state.catalog.campuses = payload.campuses;
     populateCampusPicker();
@@ -665,7 +665,7 @@ function applyCampusData(payload, {respectQuery = false, selection = null} = {})
   const mode = dataMode(payload);
   const scheduleDemo = Boolean(payload.schedule?.demo);
   updateScheduleSource(payload.schedule);
-  $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Реальный план";
+  $("modePill").lastChild.textContent = payload.graph.community ? " План участника" : mode === "DEMO" ? " Демо-режим" : " Реальный план";
   $("prototypeNote").hidden = !payload.graph.demo;
   $("mapSourceNote").textContent = payload.graph.route_note || "";
   $("mapSourceNote").hidden = !payload.graph.route_note;

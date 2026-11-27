@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f2f2f2">
+  <title>Редактор кампусов · Навигатор</title>
+  <script src="./theme.js"></script>
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./map-plan.js" defer></script>
+  <script src="./route.js" defer></script>
+  <script src="./static-api.js" defer></script>
+  <script src="./editor.js" defer></script>
+</head>
+<body class="campus-editor">
+  <header class="topbar">
+    <div class="topbar__inner">
+      <a class="brand" href="./"><img class="navigator-logo" src="./assets/mobile/logo.svg" alt="Сингулярити, центр детского образования"></a>
+      <div class="editor-header-actions">
+        <button class="theme-toggle" type="button" aria-label="Тёмная тема" aria-pressed="false" data-theme-toggle></button>
+        <a class="editor-back" href="./"><span aria-hidden="true">←</span> К навигатору</a>
+      </div>
+    </div>
+  </header>
+  <main class="page-shell editor-shell">
+    <h1>Добавить кампус</h1>
+    <p>Загрузите планы этажей, отметьте точки и соедините их проходами. Для публикации потребуется аккаунт GitHub.</p>
+    <p id="editor-submission" hidden><a class="button button--primary" id="editor-github-submit" target="_blank" rel="noopener">Отправить через GitHub</a></p>
+    <p id="editor-status" class="editor-status" role="status" aria-live="polite"></p>
+    <form id="editor-workspace" hidden>
+      <fieldset id="editor-content" class="editor-content">
+        <div class="panel editor-card editor-campus-card">
+          <div class="editor-campus-bar">
+            <label hidden>Кампус<select id="editor-campus" disabled></select></label>
+            <div class="editor-publish">
+              <a id="editor-preview" class="text-button" href="./" target="_blank" rel="noopener" hidden>Открыть в навигаторе ↗</a>
+              <button class="button button--primary" type="submit">Скачать файл кампуса</button>
+            </div>
+          </div>
+          <details class="editor-campus-info" id="editor-info">
+            <summary>Данные кампуса</summary>
+            <div class="editor-fields">
+              <label>Название<input id="campus-name" maxlength="120" required></label>
+              <label>Короткое название<input id="campus-short" maxlength="120" placeholder="Как полное название"></label>
+              <label>Город<input id="campus-city" maxlength="120" required></label>
+              <label>ID корпуса<input id="campus-id" pattern="[A-Za-z0-9][A-Za-z0-9_\-]{0,63}" maxlength="64" placeholder="Например, moscow-north" required></label>
+              <label>Часовой пояс<input id="campus-timezone" maxlength="120" placeholder="Europe/Moscow" required></label>
+              <label>Широта<input id="campus-latitude" type="number" min="-90" max="90" step="any" required></label>
+              <label>Долгота<input id="campus-longitude" type="number" min="-180" max="180" step="any" required></label>
+            </div>
+          </details>
+        </div>
+
+        <div class="editor-layout">
+          <section class="panel editor-card editor-map-card" aria-labelledby="editor-floor-title">
+            <div class="editor-floor-heading">
+              <h2 id="editor-floor-title">План этажа</h2>
+              <div class="editor-row">
+                <button class="editor-control" id="editor-add-floor" type="button">Добавить этаж</button>
+                <button class="editor-control" id="editor-add-point" type="button">Добавить точку</button>
+                <button class="editor-control editor-control--danger" id="editor-remove-floor" type="button">Удалить пустой этаж</button>
+              </div>
+            </div>
+            <div class="editor-fields editor-floor-fields">
+              <label>Этаж<select id="editor-floor"></select></label>
+              <label>Название этажа<input id="editor-floor-name" maxlength="120" required></label>
+              <label>Загрузить схему<input id="editor-image" type="file" accept="image/png,image/jpeg,image/webp"></label>
+            </div>
+            <p id="editor-map-hint" class="editor-hint">Нажмите на план, чтобы поставить контрольную точку.</p>
+            <div class="editor-map-surface">
+              <svg id="editor-map" class="editor-map" viewBox="0 0 440 290" aria-label="План этажа с контрольными точками" aria-describedby="editor-map-hint"></svg>
+            </div>
+          </section>
+
+          <div class="editor-sidebar">
+            <section class="panel editor-card">
+              <h2>Точки этажа</h2>
+              <label>Выбрать точку<select id="editor-node"></select></label>
+              <div id="editor-node-fields" class="editor-stack" hidden>
+                <label>Название точки<input id="editor-node-name" maxlength="160"></label>
+                <div class="editor-row editor-flags">
+                  <label><input id="editor-node-qr" type="checkbox"> Контрольная точка</label>
+                  <label><input id="editor-node-room" type="checkbox"> Место назначения</label>
+                </div>
+                <label>Направление для компаса, °<input id="editor-node-heading" type="number" min="0" max="359.99" step="any" placeholder="Не задано"></label>
+                <div class="editor-row">
+                  <button class="editor-control" id="editor-move-node" type="button" aria-pressed="false">Переместить</button>
+                  <button class="editor-control" id="editor-set-entrance" type="button">Сделать входом</button>
+                  <button class="editor-control editor-control--danger" id="editor-remove-node" type="button">Удалить</button>
+                </div>
+                <a class="text-button" id="editor-node-link" target="_blank" rel="noopener" hidden>Открыть ссылку точки ↗</a>
+              </div>
+            </section>
+
+            <details class="panel editor-card">
+              <summary>Проходы для маршрутов</summary>
+              <div class="editor-stack">
+                <p class="editor-hint">Соединяйте точки по прямым участкам. На поворотах добавляйте промежуточные точки.</p>
+                <label>Из точки<select id="editor-edge-from"></select></label>
+                <label>В точку<select id="editor-edge-to"></select></label>
+                <div class="editor-fields">
+                  <label>Длина, м<input id="editor-edge-length" type="number" min="0.01" step="any"></label>
+                  <label>Тип<select id="editor-edge-kind"><option value="corridor">Коридор</option><option value="stairs">Лестница</option><option value="lift">Лифт</option></select></label>
+                </div>
+                <label class="editor-check"><input id="editor-edge-accessible" type="checkbox" checked> Безбарьерный проход</label>
+                <button class="editor-control" id="editor-add-edge" type="button">Добавить проход</button>
+                <label>Проходы этажа<select id="editor-edge"></select></label>
+                <button class="editor-control editor-control--danger" id="editor-remove-edge" type="button">Удалить проход</button>
+              </div>
+            </details>
+          </div>
+        </div>
+      </fieldset>
+    </form>
+  </main>
+</body>
+</html>
