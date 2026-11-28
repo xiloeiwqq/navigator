@@ -561,9 +561,9 @@ function geolocationPosition() {
       return;
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: false,
+      enableHighAccuracy: mobileViewport.matches,
       timeout: 7000,
-      maximumAge: 5 * 60 * 1000
+      maximumAge: mobileViewport.matches ? 60 * 1000 : 5 * 60 * 1000
     });
   });
 }
@@ -584,6 +584,11 @@ async function detectNearestCampus({announce = true, switchCampusOnSuccess = tru
       position.coords.longitude
     );
     if (!nearest) throw new Error("в каталоге нет координат корпусов");
+    if (mobileViewport.matches && nearest.distance_km > 25) {
+      $("campusDetection").textContent = "Поблизости нет кампусов · выберите вручную";
+      if (announce) showToast("Поблизости нет кампусов. Выберите город вручную.");
+      return null;
+    }
     const label = `${nearest.campus.city} · ${distanceLabel(nearest.distance_km)}`;
     $("campusDetection").textContent = `Ближайший: ${label}`;
     if (switchCampusOnSuccess && nearest.campus.id !== state.campusId) {
@@ -665,7 +670,7 @@ function applyCampusData(payload, {respectQuery = false, selection = null} = {})
   const mode = dataMode(payload);
   const scheduleDemo = Boolean(payload.schedule?.demo);
   updateScheduleSource(payload.schedule);
-  $("modePill").lastChild.textContent = payload.graph.community ? " План участника" : mode === "DEMO" ? " Демо-режим" : " Реальный план";
+  $("modePill").lastChild.textContent = mode === "DEMO" ? " Демо-режим" : " Реальный план";
   $("prototypeNote").hidden = !payload.graph.demo;
   $("mapSourceNote").textContent = payload.graph.route_note || "";
   $("mapSourceNote").hidden = !payload.graph.route_note;
@@ -1958,7 +1963,8 @@ async function boot() {
     const query = new URLSearchParams(location.search);
     const queryCampus = query.get("campus_id");
     const knownQueryCampus = campusById(queryCampus);
-    const storedCampus = campusById(storageValue("navigator_campus"));
+    const stored = campusById(storageValue("navigator_campus"));
+    const storedCampus = stored?.temporarily_closed ? null : stored;
     const linkedCampus = knownQueryCampus || (!queryCampus && (query.has("start_node") || query.has("node_id"))
       ? campusById(catalog.default_campus_id) : null);
     if (linkedCampus && !linkedCampus.temporarily_closed) {
@@ -1966,14 +1972,17 @@ async function boot() {
       await switchCampus(linkedCampus.id, {source: "link", respectQuery: true});
       if ($("start").value && !query.has("target")) mobile.screen = state.locationSource === "qr" ? "located" : "map";
       if (!$("start").value && (query.has("start_node") || query.has("node_id"))) showMobileError("qr");
-    } else if (storedCampus && !storedCampus.temporarily_closed) {
+    } else if (storedCampus && !mobileViewport.matches) {
       await switchCampus(storedCampus.id, {source: "saved", respectQuery: false});
     } else {
-      const detected = !mobileViewport.matches && await detectNearestCampus({announce: false});
+      const detected = await detectNearestCampus({announce: false});
       if (!detected) {
-        await switchCampus(catalog.default_campus_id, {source: "default", respectQuery: false});
-        $("campusDetection").textContent = "Корпус по умолчанию · можно переключить";
+        await switchCampus(storedCampus?.id || catalog.default_campus_id, {
+          source: storedCampus ? "saved" : "default",
+          respectQuery: false
+        });
       }
+      if (mobileViewport.matches) mobile.screen = "map";
     }
     if (queryCampus && !knownQueryCampus) showToast("Неизвестный кампус в QR. Выберите корпус и старт вручную.", "error");
     if (knownQueryCampus?.temporarily_closed) showToast(`${knownQueryCampus.short_name} временно не работает`, "error");
