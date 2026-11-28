@@ -33,3 +33,6 @@ jobs:
           if git -C feed diff --cached --quiet; then exit 0; fi
           git -C feed commit -m 'Sync published campuses'
           git -C feed push origin HEAD:refs/heads/codex/navigator-data
+      - name: Check the hosted password prompt
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 sync_hosted_catalog.py --check-editor
