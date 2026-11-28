@@ -2,13 +2,11 @@
 
 from concurrent.futures import ThreadPoolExecutor
 import json
-from http.cookiejar import CookieJar
 from pathlib import Path
 import re
 import sys
-from urllib.error import HTTPError
 from urllib.parse import urlencode
-from urllib.request import HTTPCookieProcessor, Request, build_opener, urlopen
+from urllib.request import Request, urlopen
 
 
 ORIGIN = "https://navigator-singularity.bentshortbread2.chatgpt.site"
@@ -62,30 +60,5 @@ def synchronize(destination):
     print("PUBLIC_CATALOG_SYNCED", version, len(ids))
 
 
-def check_editor():
-    browser = build_opener(HTTPCookieProcessor(CookieJar()))
-    with browser.open(ORIGIN + "/editor", timeout=20) as response:
-        if b'id="editor-password"' not in response.read():
-            raise ValueError("The hosted editor has no password field")
-    probe = Request(ORIGIN + "/api/editor/login", data=b"{}", headers={
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "Origin": ORIGIN,
-        "Referer": ORIGIN + "/editor",
-        "X-Editor-Password": "invalid-verification-password",
-    })
-    try:
-        browser.open(probe, timeout=20).close()
-    except HTTPError as error:
-        if error.code == 401 and error.headers.get_content_type() == "application/json":
-            print("HOSTED_EDITOR_REJECTS_INCORRECT_PASSWORD")
-            return
-        raise
-    raise ValueError("The hosted editor did not reject an incorrect password")
-
-
 if __name__ == "__main__":
-    if sys.argv[1] == "--check-editor":
-        check_editor()
-    else:
-        synchronize(Path(sys.argv[1]))
+    synchronize(Path(sys.argv[1]))
