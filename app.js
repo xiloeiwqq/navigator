@@ -1970,7 +1970,7 @@ async function boot() {
     if (linkedCampus && !linkedCampus.temporarily_closed) {
       mobile.screen = query.has("target") ? "map" : "welcome";
       await switchCampus(linkedCampus.id, {source: "link", respectQuery: true});
-      if ($("start").value && !query.has("target")) mobile.screen = state.locationSource === "qr" ? "located" : "map";
+      if ($("start").value && !query.has("target") && state.locationSource === "qr") mobile.screen = "located";
       if (!$("start").value && (query.has("start_node") || query.has("node_id"))) showMobileError("qr");
     } else if (storedCampus && !mobileViewport.matches) {
       await switchCampus(storedCampus.id, {source: "saved", respectQuery: false});
@@ -1982,7 +1982,6 @@ async function boot() {
           respectQuery: false
         });
       }
-      if (mobileViewport.matches) mobile.screen = "map";
     }
     if (queryCampus && !knownQueryCampus) showToast("Неизвестный кампус в QR. Выберите корпус и старт вручную.", "error");
     if (knownQueryCampus?.temporarily_closed) showToast(`${knownQueryCampus.short_name} временно не работает`, "error");
