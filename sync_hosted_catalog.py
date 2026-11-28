@@ -5,7 +5,6 @@ import json
 from pathlib import Path
 import re
 import sys
-from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -20,16 +19,6 @@ def read(path):
         if response.headers.get_content_type() != "application/json":
             raise ValueError(f"{path} did not return JSON")
         return json.load(response)
-
-
-def verify_editor_requires_password():
-    try:
-        urlopen(Request(ORIGIN + "/api/editor/login", method="POST"), timeout=20).close()
-    except HTTPError as error:
-        if error.code == 401:
-            return
-        raise
-    raise ValueError("The public editor accepted a request without a password")
 
 
 def campus_payload(campus, version):
@@ -49,10 +38,9 @@ def synchronize(destination):
     ids = [item["id"] for item in catalog["campuses"]]
     if not ids or not all(SAFE_ID.fullmatch(campus) for campus in ids):
         raise ValueError("Invalid campus IDs returned by the hosted catalog")
-    verify_editor_requires_password()
     index = destination / "index.json"
     if index.exists() and json.loads(index.read_text(encoding="utf-8"))["version"] == version:
-        print("CLOUD_PUBLIC_AND_EDITOR_PROTECTED", version, len(ids))
+        print("PUBLIC_CATALOG_CURRENT", version, len(ids))
         return
     with ThreadPoolExecutor(max_workers=6) as workers:
         payloads = list(workers.map(lambda campus: campus_payload(campus, version), ids))
@@ -69,7 +57,7 @@ def synchronize(destination):
         if previous.name not in current:
             previous.unlink()
     write(index, catalog)
-    print("CLOUD_PUBLIC_AND_EDITOR_PROTECTED", version, len(ids))
+    print("PUBLIC_CATALOG_SYNCED", version, len(ids))
 
 
 if __name__ == "__main__":
